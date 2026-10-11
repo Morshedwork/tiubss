@@ -5,7 +5,7 @@
  */
 const STORAGE_KEY = 'tiu-bss-demo-v1';
 const EDITABLE_COLLECTIONS = new Set(['events', 'menu', 'vendors', 'members', 'gallery', 'news', 'volunteers', 'messages', 'committee', 'partners']);
-const EXPORTABLE_COLLECTIONS = new Set([...EDITABLE_COLLECTIONS, 'tickets', 'orders', 'audits']);
+const EXPORTABLE_COLLECTIONS = new Set([...EDITABLE_COLLECTIONS, 'tickets', 'orders', 'audits', 'posts']);
 const subscribers = new Set();
 const clone = value => JSON.parse(JSON.stringify(value));
 const now = () => new Date().toISOString();
@@ -70,6 +70,7 @@ function seed() {
     ],
     volunteers: [],
     messages: [],
+    posts: [],
     committee: [],
     partners: [],
     audits: [{id: 'a-demo-1', action: 'demo_initialized', collection: 'settings', recordId: 'demo', actorId: 'demo', createdAt: timestamp, isDemo: true}],
@@ -85,6 +86,7 @@ function readStored() {
     if (parsed && typeof parsed === 'object') {
       if (parsed.committee === undefined) parsed.committee = [];
       if (parsed.partners === undefined) parsed.partners = [];
+      if (parsed.posts === undefined) parsed.posts = [];
     }
     const lists = [...EXPORTABLE_COLLECTIONS];
     if (!parsed || !lists.every(key => Array.isArray(parsed[key])) || !parsed.settings || typeof parsed.settings !== 'object') return null;
@@ -266,7 +268,10 @@ export function removeRecord(collection, id) {
     }
     if (collection === 'menu' && next.orders.some(order => !['cancelled', 'collected'].includes(order.status) && order.items.some(item => item.menuId === id))) fail('This item has open orders. Keep it available until those orders are resolved.');
     if (collection === 'vendors' && next.menu.some(item => item.vendorId === id)) fail('Reassign this vendor’s menu items before deleting it.');
-    if (collection === 'members' && id === 'me') next.profile = null;
+    if (collection === 'members' && id === 'me') {
+      next.profile = null;
+      next.posts = next.posts.filter(post => post.userId !== id).map(post => ({...post, replies: (post.replies || []).filter(reply => reply.userId !== id), hearts: (post.hearts || []).filter(userId => userId !== id)}));
+    }
     return next[collection].splice(index, 1)[0];
   });
 }
@@ -281,6 +286,70 @@ export function saveProfile(profile) {
     if (index >= 0) next.members[index] = saved;
     else next.members.unshift(saved);
     return saved;
+  });
+}
+
+const POST_CATEGORIES = new Set(['introduction', 'question', 'moment']);
+function postText(value, maxLength, label) {
+  const text = textValue(value);
+  if (!text || text.length > maxLength) fail(`${label} must contain 1–${maxLength} characters.`);
+  return text;
+}
+function getPost(next, id) {
+  const post = next.posts.find(row => row.id === id);
+  if (!post) fail('This community note could not be found.');
+  return post;
+}
+
+export function createCommunityPost({category, body} = {}) {
+  return mutate('community_note_created', 'posts', '', next => {
+    const profile = requireProfile(next);
+    if (!POST_CATEGORIES.has(category)) fail('Choose an introduction, question, or shared moment.');
+    const post = {id: uid('post'), userId: profile.id, name: profile.name, category, body: postText(body, 600, 'Your note'), status: 'published', hearts: [], replies: [], createdAt: now(), isDemo: true};
+    next.posts.unshift(post);
+    return post;
+  });
+}
+
+export function deleteCommunityPost(id) {
+  return mutate('community_note_deleted', 'posts', id, next => {
+    const profile = requireProfile(next), post = getPost(next, id);
+    if (post.userId !== profile.id) fail('You can only delete your own notes.');
+    next.posts = next.posts.filter(row => row.id !== id);
+    return post;
+  });
+}
+
+export function togglePostHeart(id) {
+  return mutate('community_note_reacted', 'posts', id, next => {
+    const profile = requireProfile(next), post = getPost(next, id);
+    if (post.status !== 'published') fail('This note is currently hidden.');
+    const hearts = new Set(post.hearts || []);
+    if (hearts.has(profile.id)) hearts.delete(profile.id); else hearts.add(profile.id);
+    post.hearts = [...hearts];
+    return post;
+  });
+}
+
+export function replyToCommunityPost(id, body) {
+  return mutate('community_note_replied', 'posts', id, next => {
+    const profile = requireProfile(next), post = getPost(next, id);
+    if (post.status !== 'published') fail('This note is currently hidden.');
+    const reply = {id: uid('reply'), userId: profile.id, name: profile.name, body: postText(body, 300, 'Your reply'), createdAt: now(), isDemo: true};
+    post.replies ||= [];
+    post.replies.push(reply);
+    return reply;
+  });
+}
+
+// Local admin workflow only; this is not a server authorization boundary.
+export function moderateCommunityPost(id, status) {
+  if (!['published', 'hidden'].includes(status)) fail('Choose published or hidden.');
+  return mutate('community_note_moderated', 'posts', id, next => {
+    const post = getPost(next, id);
+    post.status = status;
+    post.moderatedAt = now();
+    return post;
   });
 }
 

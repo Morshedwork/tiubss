@@ -2,14 +2,15 @@
 
 A responsive community website inspired by Bangladeshi rickshaw painting, peacocks, lotus flowers, and the visual brief supplied for TIU Bangladesh Student Society.
 
-## Rickshaw paint visual refresh
+## Bangladesh–Japan community refresh
 
-The refreshed homepage uses a new original painted Dhaka rickshaw centerpiece, a cream/forest/red/ultramarine palette, decorative floral trim, ticket-style event cards, a food showcase, community membership cards, a layered gallery, and a framed red invitation panel. Inner routes retain all existing functionality with matching motifs and readable operations screens.
+The homepage pairs bold editorial type with an original painted landscape connecting Bangladesh’s Shaheed Minar and Parliament House to Tokyo Tower, Mount Fuji, and cherry blossoms. The supplied peacock and rose references appear in the story collage, gallery, community welcome, join/member surfaces, and profile corner. An interactive cultural trail reveals four short landmark stories and links to official reference sources. `#/culture` presents the complete artwork.
 
-`dist/js/home-v2.js`, `dist/rickshaw.css`, and `dist/rickshaw-inner.css` contain the visual revision. `dist/js/motion.js` adds progressively enhanced scroll reveals, fine-pointer parallax, subtle card tilt, and a persisted Pause motion control on the homepage and footer. System reduced-motion settings are respected by default. Animation is decorative and never required to use the product. Missing observer APIs leave all content visible.
+`dist/js/home-v2.js`, `dist/js/culture-v3.js`, `dist/rickshaw.css`, `dist/culture-v3.css`, `dist/rickshaw-inner.css`, and `dist/community-wall.css` contain the visual revision. Motion includes route and section entrances, fine-pointer panorama parallax, floating ornaments, SVG path drawing, card feedback, and modal transitions. The persisted Pause motion control and system reduced-motion preference remain supported. Missing observer APIs leave content visible.
 
-Refresh validation: 19 virtual-DOM integration checks covering 47 routes and existing flows passed. CSS parsing/grammar checks reported no syntax or value errors. No browser visual/mobile rendering check was available in this environment.
+The community adda wall supports profile-required posts, introductions/questions/moments filters, reactions, replies, author deletion, and admin hide/restore moderation. It starts empty, with illustrated conversation prompts; it does not invent community activity. Profile removal clears associated contributions. Admin settings now update the displayed community name, Instagram link, and contact email; announcements appear on the homepage. Food quantity changes preserve the pickup slot and can remove items after inventory drops below an existing cart quantity.
 
+Validation uses store/QR tests, virtual-DOM interaction checks across public/admin/staff routes, local asset checks, and CSS parsing/grammar checks. No browser visual/mobile rendering check is available in this environment.
 
 ## Current delivery
 
@@ -23,7 +24,9 @@ The interface is intentionally explicit about this boundary. Demo tickets do not
 - `#/events`, `#/events/:slug`: filters, details, free registration and QR entry tickets.
 - `#/events/:slug/food`: event menu, quantities, cart, pickup slot and cash-due ordering.
 - `#/join`, `#/profile`: profile, education and employment, directory opt-in, tickets, orders, export and profile removal.
-- `#/community`, `#/alumni`, `#/members/:id`: searchable opted-in directory and member profiles.
+- `#/community`, `#/alumni`, `#/members/:id`: searchable opted-in directory and member profiles. `#/community?wall=1` opens the interactive local adda wall.
+- `#/culture`: Bangladesh–Japan artwork and selectable cultural stories.
+- `#/admin/wall`: community post moderation and reply review.
 - `#/gallery`: artwork lightbox and category filters.
 - `#/about`, `#/mission`, `#/history`: community story and values.
 - `#/news`, `#/news/:id`: published news from the demo CMS.
@@ -44,7 +47,8 @@ Navigation and homepage copy support English/Bangla. Operational modules are pri
 3. Open that event’s food table, add dishes, choose a pickup slot, and place the sample order. This reserves local stock and issues a separate food token.
 4. Open Admin → Food orders or `#/staff/food`. Advance **Start preparing**, **Mark ready**, record the cash collected, and confirm pickup. The store rejects unpaid collection and duplicate pickup.
 5. Open `#/staff/check-in`. Paste an event token or select a guest. The store rejects a second check-in and cancelled tickets.
-6. Add/edit an event, food item, counter, news story, or gallery image. Reload to check browser-local persistence. Download CSV reports. Admin → Settings can reset demo data.
+6. Open Community → Adda wall, write an introduction, react/reply, and review moderation in Admin → Adda wall.
+7. Add/edit an event, food item, counter, news story, or gallery image. Reload to check browser-local persistence. Download CSV reports. Admin → Settings can reset demo data.
 
 Manual QR-token lookup is implemented. Camera scanning is not connected. The demo cannot guarantee cross-device or concurrent multi-user consistency; live operations must use the provided server transaction layer.
 
@@ -73,6 +77,10 @@ npm run build
 The static app requires no npm packages. Tests exercise capacity, deduplication, one-time check-in/pickup, inventory validation, cash gates, cancellation, persistence, CSV safety, and QR construction. Firebase TypeScript compilation passes. Firebase emulator/security tests and live provider integration have not been run without a configured project. Visual browser QA is unavailable in this execution environment; responsive styles and SVG assets have been inspected at source/artwork level.
 
 ## Assets and credits
+
+- `dist/assets/bangladesh-japan-v3.webp`: original mural generated with the built-in Image Generation tool. Final prompt: “An exquisitely detailed handpainted Bangladeshi rickshaw-art landscape joining Bangladesh to Japan, inspired by the supplied peacock and rose art; saturated green, vermilion, sunflower yellow, cobalt and fuchsia enamel brushwork; stylised Dhaka Parliament House, Shaheed Minar, a Lalbagh-inspired pavilion, painted cycle rickshaw, river, boat, peacocks and roses; Tokyo Tower, distant Mount Fuji, sakura and a traditional gateway; small groups of fictional university-age friends; warm cream sky and botanical border. A hopeful cultural mural, no text, logos, watermarks, photorealism or geographic accuracy implied.” The detailed original prompt is in `art-direction-v3.md`. Final source asset is 1536 × 1024; the site uses WebP compression.
+- `dist/assets/sakura-folk-v3.svg`: original code-native ornament combining sakura blossoms with the site’s painted leaves.
+- Landmark references: Bangladesh Tourism Board ([Shaheed Minar](https://beautifulbangladesh.gov.bd/cat/landmarks/92), [National Parliament House](https://beautifulbangladesh.gov.bd/loc/dhaka/102)) and GO TOKYO ([Tokyo Tower](https://www.gotokyo.org/en/spot/4/index.html), [Spring](https://www.gotokyo.org/en/story/guide/spring/index.html)). These links appear alongside cultural stories; generated art is an imagined interpretation, not documentation of the places or events.
 
 - `dist/assets/rickshaw-hero-v2.webp`: original generated hand-painted Dhaka rickshaw illustration for the refreshed homepage, created with the built-in Image Generation tool. Prompt called for a three-quarter rear-side rickshaw, bright fuchsia canopy, blue wheels, peacock/rose panels, vivid enamel-paint colors, warm cream background, no text, people, logos, or watermark.
 - `rickshaw-flower.svg`, `rickshaw-vine.svg`, `rickshaw-trim.svg`, and `rickshaw-bird.svg`: original decorative SVG artwork extending the site’s folk-art visual language. Self-contained, no external resources.

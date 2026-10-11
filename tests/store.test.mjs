@@ -151,3 +151,41 @@ test('CSV exports neutralize formulas, quote embedded commas and preserve newlin
   assert.throws(() => store.exportCSV('__proto__'), /cannot be exported/);
   assert.equal(store.exportCSV('volunteers'), '');
 });
+
+test('community notes require profiles, validate input, persist reactions and respect moderation', () => {
+  assert.throws(() => store.createCommunityPost({category: 'introduction', body: 'Hello!'}), /profile first/);
+  setupProfile();
+  assert.throws(() => store.createCommunityPost({category: 'invalid', body: 'Hello!'}), /Choose an introduction/);
+  assert.throws(() => store.createCommunityPost({category: 'question', body: ' '.repeat(3)}), /1–600/);
+  assert.throws(() => store.createCommunityPost({category: 'question', body: 'x'.repeat(601)}), /1–600/);
+  const post = store.createCommunityPost({category: 'introduction', body: ' Hello from Tokyo! '});
+  assert.equal(post.body, 'Hello from Tokyo!');
+  assert.equal(post.userId, 'me');
+  assert.equal(store.togglePostHeart(post.id).hearts.length, 1);
+  assert.equal(store.togglePostHeart(post.id).hearts.length, 0);
+  store.replyToCommunityPost(post.id, 'Glad to be here.');
+  assert.equal(store.getState().posts[0].replies.length, 1);
+  store.moderateCommunityPost(post.id, 'hidden');
+  assert.throws(() => store.replyToCommunityPost(post.id, 'Another reply'), /hidden/);
+  assert.throws(() => store.togglePostHeart(post.id), /hidden/);
+  assert.throws(() => store.moderateCommunityPost(post.id, 'invalid'), /published or hidden/);
+  store.moderateCommunityPost(post.id, 'published');
+  assert.equal(JSON.parse(storage.get('tiu-bss-demo-v1')).posts[0].status, 'published');
+  assert.throws(() => store.saveRecord('posts', {id: post.id, userId: 'someone-else'}), /dedicated/);
+  store.deleteCommunityPost(post.id);
+  assert.equal(store.getState().posts.length, 0);
+});
+
+test('community notes migrate without resetting existing data and profile deletion removes contributions', async () => {
+  setupProfile();
+  const existing = store.getState();
+  delete existing.posts;
+  storage.set('tiu-bss-demo-v1', JSON.stringify(existing));
+  const migrated = await import(`data:text/javascript;base64,${Buffer.from(source + '\n// migration check').toString('base64')}`);
+  assert.equal(migrated.getState().profile.name, 'Test member');
+  assert.deepEqual(migrated.getState().posts, []);
+  migrated.createCommunityPost({category: 'moment', body: 'A little home in Japan.'});
+  migrated.removeRecord('members', 'me');
+  assert.equal(migrated.getState().profile, null);
+  assert.deepEqual(migrated.getState().posts, []);
+});

@@ -1,5 +1,6 @@
 /** Small, optional enhancements. Every route mount disposes the previous one. */
 let disposeCurrent = () => {};
+let previousRoute;
 
 export const motionStyles = `
   html[data-motion="on"] .motion-ready {
@@ -14,12 +15,84 @@ export const motionStyles = `
     opacity: 1;
     translate: 0 0;
   }
+  html[data-motion="on"] [data-scene-reveal].motion-ready {
+    transition-duration: 950ms;
+    transition-timing-function: cubic-bezier(.16,.7,.25,1);
+  }
+  html[data-motion="on"] [data-scene-reveal].motion-ready:not(.is-revealed) {
+    translate: 0 30px;
+  }
+  html[data-motion="on"] .motion-route-enter {
+    animation: bss-page-arrival 620ms cubic-bezier(.2,.7,.2,1) both;
+  }
+  html[data-motion="on"] .motion-draw-path {
+    stroke-dasharray: var(--draw-length) var(--draw-length);
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset 1600ms cubic-bezier(.4,0,.2,1) 100ms;
+  }
+  html[data-motion="on"] [data-draw].motion-ready:not(.is-revealed).motion-draw-path,
+  html[data-motion="on"] [data-draw].motion-ready:not(.is-revealed) .motion-draw-path {
+    stroke-dashoffset: var(--draw-length);
+  }
+  html[data-motion="on"] [data-parallax-layer] {
+    translate: calc(var(--mx,0) * var(--parallax-depth,5px)) calc(var(--my,0) * var(--parallax-depth,5px));
+    transition: translate 700ms cubic-bezier(.2,.7,.2,1);
+    will-change: translate;
+  }
+  html[data-motion="on"] [data-float] {
+    animation: bss-paper-float var(--float-duration,8s) ease-in-out infinite;
+    animation-delay: var(--float-delay,0s);
+  }
+  html[data-motion="on"] .bridge-panel > * {
+    animation: bss-note-arrival 420ms cubic-bezier(.2,.7,.2,1) both;
+  }
+  html[data-motion="on"] .bridge-panel > :nth-child(2) { animation-delay: 35ms; }
+  html[data-motion="on"] .bridge-panel > :nth-child(3) { animation-delay: 70ms; }
+  html[data-motion="on"] .bridge-stop {
+    transition: translate 220ms ease, scale 220ms ease, box-shadow 220ms ease, background-color 220ms ease;
+  }
+  html[data-motion="on"] .bridge-stop:hover { translate: 0 -3px; }
+  html[data-motion="on"] :is(.btn,.bridge-stop):active { scale: .975; }
+  html[data-motion="on"] .modal-backdrop { animation: bss-overlay-arrival 180ms ease both; }
+  html[data-motion="on"] .modal { animation: bss-note-arrival 300ms cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes bss-page-arrival {
+    from { opacity: .35; translate: 0 14px; }
+    to { opacity: 1; translate: 0 0; }
+  }
+  @keyframes bss-note-arrival {
+    from { opacity: .3; translate: 0 7px; }
+    to { opacity: 1; translate: 0 0; }
+  }
+  @keyframes bss-overlay-arrival { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes bss-paper-float {
+    0%,100% { translate: 0 0; }
+    50% { translate: 0 -7px; }
+  }
   html[data-motion="off"] .motion-ready { opacity: 1; translate: none; }
+  html[data-motion="off"] :is(.motion-route-enter,[data-float],.bridge-panel > *,.modal,.modal-backdrop) {
+    animation: none !important;
+  }
+  html[data-motion="off"] :is([data-parallax-layer],.bridge-stop) {
+    translate: none !important;
+    transition: none !important;
+  }
+  html[data-motion="off"] :is(.btn,.bridge-stop):active { scale: none; }
   @media (prefers-reduced-motion: reduce) {
-    html:not([data-motion="on"]) .motion-ready { opacity: 1; translate: none; }
+    html[data-motion] .motion-ready { opacity: 1; translate: none; transition: none; }
+    html[data-motion] :is(.motion-route-enter,[data-float],.bridge-panel > *,.modal,.modal-backdrop) {
+      animation: none !important;
+    }
+    html[data-motion] :is([data-parallax-layer],.bridge-stop) {
+      translate: none !important;
+      transition: none !important;
+    }
+    html[data-motion] .motion-draw-path { stroke-dashoffset: 0 !important; transition: none !important; }
+    html[data-motion] :is(.btn,.bridge-stop):active { scale: none; }
   }
   @media print {
-    html[data-motion] .motion-ready { opacity: 1 !important; translate: none !important; }
+    html[data-motion] :is(.motion-ready,.motion-route-enter) { opacity: 1 !important; translate: none !important; animation: none !important; }
+    html[data-motion] :is([data-parallax-layer],[data-float]) { translate: none !important; animation: none !important; }
+    html[data-motion] .motion-draw-path { stroke-dashoffset: 0 !important; }
   }
 `;
 
@@ -40,14 +113,31 @@ export function mountMotion() {
   const root = document.documentElement;
   const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)');
   const precise = window.matchMedia?.('(pointer: fine) and (hover: hover)');
-  const revealElements = [...document.querySelectorAll('[data-reveal]')];
+  const revealElements = [...document.querySelectorAll('[data-reveal], [data-scene-reveal], [data-draw]')];
   const pointerElements = [...document.querySelectorAll('[data-parallax], [data-tilt]')];
   const buttons = [...document.querySelectorAll('[data-motion-toggle]')];
+  const route = window.location?.hash || '#/';
+  const routeHeading = route !== previousRoute ? document.querySelector('#app h1') : null;
+  previousRoute = route;
   let preference = savedPreference();
   let observer;
   let frame = 0;
   let enabled = false;
   const pending = new Map();
+
+  // Only explicitly marked, solid decorative paths are drawn. Unsupported SVG
+  // geometry stays untouched and fully visible.
+  for (const element of document.querySelectorAll('[data-draw]')) {
+    const paths = element.matches('path') ? [element] : element.querySelectorAll('path');
+    for (const path of paths) {
+      try {
+        const length = path.getTotalLength();
+        if (!Number.isFinite(length) || length <= 0) continue;
+        path.style.setProperty('--draw-length', String(Math.ceil(length)));
+        path.classList.add('motion-draw-path');
+      } catch { /* Drawing is decorative; unsupported geometry needs no fallback. */ }
+    }
+  }
 
   if (!document.getElementById('bss-motion-styles')) {
     const style = document.createElement('style');
@@ -83,6 +173,7 @@ export function mountMotion() {
     observer = null;
     enabled = preference ? preference === 'on' : !reduced?.matches;
     root.dataset.motion = enabled ? 'on' : 'off';
+    routeHeading?.classList.toggle('motion-route-enter', enabled && !reduced?.matches);
     for (const button of buttons) {
       const label = enabled ? 'Pause motion' : 'Enable motion';
       const text = button.querySelector('[data-motion-label]');
@@ -135,7 +226,7 @@ export function mountMotion() {
 
   for (const element of pointerElements) {
     element.addEventListener('pointermove', event => {
-      if (!enabled || !precise?.matches || event.pointerType === 'touch') return;
+      if (!enabled || reduced?.matches || !precise?.matches || event.pointerType === 'touch') return;
       if (event.target instanceof Element && event.target.closest(interactive)) {
         resetPointer(element);
         return;
@@ -178,6 +269,7 @@ export function mountMotion() {
 
   disposeCurrent = () => {
     controller.abort();
+    routeHeading?.classList.remove('motion-route-enter');
     revealAll();
     pointerElements.forEach(resetPointer);
     pending.clear();

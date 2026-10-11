@@ -1,4 +1,8 @@
 const directoryState = { query: '', type: 'all', mentors: false };
+let wallFilter = 'all';
+let wallDeepLinkHandled = false;
+globalThis.addEventListener?.('hashchange', () => { if (!globalThis.location?.hash?.includes('wall=1')) wallDeepLinkHandled = false; });
+const postCategories = { introduction: 'Introductions', question: 'Questions', moment: 'Shared moments' };
 let profileTab = 'overview';
 const types = { student: 'Student', alumni: 'Alumni', community: 'Community' };
 
@@ -32,11 +36,40 @@ function memberCard(ctx, m) {
   </article>`;
 }
 
+function noteDate(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-GB', {day: 'numeric', month: 'short'}); }
+function wallPost(ctx, post) {
+  const profile = state(ctx).profile, loved = list(post.hearts).includes(profile?.id), own = profile?.id === post.userId;
+  return `<article class="cw-note cw-note-${esc(ctx, post.category)}" data-wall-category="${esc(ctx, post.category)}" data-post-id="${esc(ctx, post.id)}">
+    <div class="cw-note-header"><span class="cw-pin" aria-hidden="true"></span><span class="cw-category">${postCategories[post.category] || 'Community note'}</span><time datetime="${esc(ctx, post.createdAt)}">${esc(ctx, noteDate(post.createdAt))}</time></div>
+    <p class="cw-note-body">${esc(ctx, post.body)}</p>
+    <div class="cw-author"><span aria-hidden="true">${esc(ctx, initials(post.name))}</span><div><strong>${esc(ctx, post.name)}</strong><small>Local demo note${post.status === 'hidden' ? ' · hidden by admin' : ''}</small></div></div>
+    <div class="cw-note-actions"><button type="button" data-community-action="post-heart" data-id="${esc(ctx, post.id)}" aria-pressed="${loved}" aria-label="${loved ? 'Remove' : 'Add'} appreciation" ${post.status === 'hidden' ? 'disabled' : ''}><span aria-hidden="true">${loved ? '♥' : '♡'}</span> ${list(post.hearts).length} <span>Appreciate</span></button><button type="button" data-community-action="post-reply" data-id="${esc(ctx, post.id)}" ${post.status === 'hidden' ? 'disabled' : ''}>${list(post.replies).length ? list(post.replies).length + ' replies' : 'Reply'} ↗</button>${own ? `<button type="button" data-community-action="post-delete" data-id="${esc(ctx, post.id)}" class="cw-delete">Delete</button>` : ''}</div>
+    ${list(post.replies).length ? `<div class="cw-replies">${list(post.replies).map(reply => `<p><strong>${esc(ctx, reply.name)}</strong><span>${esc(ctx, reply.body)}</span></p>`).join('')}</div>` : ''}
+  </article>`;
+}
+
+function communityWall(ctx) {
+  const s = state(ctx), posts = list(s.posts).filter(post => post.status === 'published' || post.userId === s.profile?.id);
+  return `<section class="cw-section" id="community-wall" aria-labelledby="wall-title">
+    <header class="cw-heading"><div><p class="eyebrow">OUR LITTLE CORNER OF THE INTERNET</p><h2 id="wall-title">The adda wall.<br><em>Pull up a chair.</em></h2></div><p>A hello, a question, a small happy moment. It’s the little things that make a place feel like ours.</p></header>
+    <div class="cw-layout"><aside class="cw-welcome"><figure><img src="assets/reference-peacocks.webp" alt="Your reference artwork of two painted peacocks and pink flowers" loading="lazy"><figcaption>Colour from home. Conversations from everywhere.</figcaption></figure><div class="cw-welcome-body"><span lang="bn">চলো, আড্ডা হোক!</span><h3>What’s your story?</h3><p>New to Japan? Missing your favourite fuchka? Found a great study spot? There’s a conversation waiting.</p><button class="btn btn-primary" data-community-action="post-compose">Leave a little note <span aria-hidden="true">↗</span></button><small>Interactive demo. Notes and replies stay in this browser; they are not shared with other people.</small></div></aside>
+    <div class="cw-board"><div class="cw-filters" role="group" aria-label="Community note categories">${Object.entries({all: 'All notes', ...postCategories}).map(([key, label]) => `<button type="button" data-community-action="post-filter" data-filter="${key}" class="${wallFilter === key ? 'active' : ''}" aria-pressed="${wallFilter === key}">${label}</button>`).join('')}</div><p class="cw-results" id="wall-results" aria-live="polite">${posts.length} ${posts.length === 1 ? 'note' : 'notes'} on this device</p><div class="cw-note-grid" id="wall-notes">${posts.map(post => wallPost(ctx, post)).join('')}</div>
+    <div class="cw-first-note" id="wall-empty" ${posts.length ? 'hidden' : ''}><img src="assets/rickshaw-flower.svg" alt="" aria-hidden="true"><p class="eyebrow">EVERY FRIENDSHIP STARTS SOMEWHERE</p><h3 id="wall-empty-title">Yours could be the first hello.</h3><p>Try one of these conversation starters.</p><div class="cw-prompts"><button data-community-action="post-compose" data-category="introduction">“A little about me…” <span>Introduce yourself ↗</span></button><button data-community-action="post-compose" data-category="question">“Does anyone know…” <span>Ask the community ↗</span></button><button data-community-action="post-compose" data-category="moment">“Today felt like home…” <span>Share a moment ↗</span></button></div></div></div></div>
+  </section>`;
+}
+
+function communityCorner(ctx, p) {
+  const count = list(state(ctx).posts).filter(post => post.userId === p.id).length;
+  return `<section class="cw-profile-corner"><img src="assets/reference-flowers.webp" alt="Hand-painted red flower from your artwork references" loading="lazy"><div><p class="eyebrow">A COMMUNITY IS MADE OF LITTLE HELLOS</p><h3>Leave your mark.</h3><p>${count ? `You’ve left ${count} ${count === 1 ? 'note' : 'notes'} on the local adda wall.` : 'Share an introduction, ask a question, or celebrate a little moment on the adda wall.'}</p><a href="#/community" class="btn btn-secondary">Visit the adda wall ↗</a></div></section>`;
+}
+
 export function renderCommunity(ctx, alumniOnly = false) {
   const members = publicMembers(ctx).filter(m => !alumniOnly || memberType(m) === 'alumni');
   return `<main class="page-container community-page">
     <header class="page-heading community-heading"><div><p class="eyebrow">${alumniOnly ? 'ONCE A PART. ALWAYS A PART.' : 'ROOTS IN BANGLADESH. CONNECTIONS EVERYWHERE.'}</p><h1>${alumniOnly ? 'Our alumni.<br><em>Our next chapter.</em>' : 'Find your people.<br><em>Grow together.</em>'}</h1><p>${alumniOnly ? 'Meet the graduates carrying our community into new cities, careers, and possibilities.' : 'Students, alumni, and friends—bringing their stories, skills, and a little piece of home.'}</p></div><div class="community-heading-note"><span class="community-rosette" aria-hidden="true">✳</span><p>Different paths.<br><strong>One community.</strong></p></div></header>
     <div class="community-intro-strip"><p><strong>A directory built on choice.</strong> Members decide whether their profile appears here. Contact details stay private.</p><a class="btn btn-secondary" href="#/join">Join the community <span aria-hidden="true">↗</span></a></div>
+    ${!alumniOnly ? communityWall(ctx) : ''}
+    <div class="cw-directory-title"><p class="eyebrow">FAMILIAR FACES. NEW POSSIBILITIES.</p><h2>${alumniOnly ? 'Meet the alumni.' : 'Find your people.'}</h2></div>
     <div class="directory-sample-notice"><span class="sample-label">Interactive demo</span> These sample profiles show how the member directory works. Requests stay on this device.</div>
     <section aria-label="Find community members">
       <div class="toolbar directory-toolbar"><label class="directory-search"><span class="sr-only">Search members by name, university, skill, employer, or city</span><input class="search-input" type="search" id="community-search" placeholder="Search a name, skill, university, or city…" value="${esc(ctx, directoryState.query)}"><span aria-hidden="true">⌕</span></label><div class="directory-filters" role="group" aria-label="Member filters">${!alumniOnly ? ['all', 'student', 'alumni', 'community'].map(type => `<button class="filter-chip ${directoryState.type === type ? 'active' : ''}" data-community-action="filter" data-filter="${type}" aria-pressed="${directoryState.type === type}">${type === 'all' ? 'Everyone' : types[type]}</button>`).join('') : ''}<button class="filter-chip ${directoryState.mentors ? 'active' : ''}" data-community-action="mentors" aria-pressed="${directoryState.mentors}">Open to mentoring</button></div></div>
@@ -81,7 +114,7 @@ function ticketCard(ctx, ticket) {
 }
 function orderCard(ctx, order) {
   const event = eventFor(ctx, order.eventId);
-  return `<article class="panel personal-order"><div class="ticket-card-top"><div><p class="eyebrow">FOOD ORDER</p><h3>${esc(ctx, event?.title || 'Community event')}</h3></div>${statusBadge(ctx, order.status)}</div><ul class="personal-order-items">${list(order.items).map(item => `<li><span>${esc(ctx, item.qty)} × ${esc(ctx, item.name)}</span><strong>${ctx.money((Number(item.price) || 0) * (Number(item.qty) || 0))}</strong></li>`).join('')}</ul><div class="order-summary-line"><span>Order total</span><strong>${ctx.money(order.total || 0)}</strong></div><p class="order-pickup">Pickup: ${esc(ctx, order.pickup || 'See event details')} · Payment: ${esc(ctx, String(order.paymentStatus || 'unpaid').replaceAll('_', ' '))}</p><div class="ticket-card-actions">${!['cancelled', 'collected'].includes(order.status) ? `<button class="btn btn-primary btn-small" data-community-action="order-qr" data-id="${esc(ctx, order.id)}">View pickup QR</button>` : ''}${['pending', 'confirmed', 'placed', 'new'].includes(order.status) ? `<button class="text-button" data-community-action="cancel-order" data-id="${esc(ctx, order.id)}">Cancel order</button>` : ''}</div><span class="sample-label">Demo order · ${esc(ctx, order.id)}</span></article>`;
+  return `<article class="panel personal-order"><div class="ticket-card-top"><div><p class="eyebrow">FOOD ORDER</p><h3>${esc(ctx, event?.title || 'Community event')}</h3></div>${statusBadge(ctx, order.status)}</div><ul class="personal-order-items">${list(order.items).map(item => `<li><span>${esc(ctx, item.qty)} × ${esc(ctx, item.name)}</span><strong>${ctx.money((Number(item.price) || 0) * (Number(item.qty) || 0))}</strong></li>`).join('')}</ul><div class="order-summary-line"><span>Order total</span><strong>${ctx.money(order.total || 0)}</strong></div><p class="order-pickup">Pickup: ${esc(ctx, order.pickup || 'See event details')} · Payment: ${esc(ctx, String(order.paymentStatus || 'unpaid').replaceAll('_', ' '))}</p><div class="ticket-card-actions">${!['cancelled', 'collected'].includes(order.status) ? `<button class="btn btn-primary btn-small" data-community-action="order-qr" data-id="${esc(ctx, order.id)}">View pickup QR</button>` : ''}${['pending', 'confirmed', 'placed', 'new'].includes(order.status) && order.paymentStatus !== 'paid' ? `<button class="text-button" data-community-action="cancel-order" data-id="${esc(ctx, order.id)}">Cancel order</button>` : ''}</div><span class="sample-label">Demo order · ${esc(ctx, order.id)}</span></article>`;
 }
 function empty(ctx, title, copy, label, href) { return `<div class="empty-state"><span class="empty-flower" aria-hidden="true">✳</span><h3>${title}</h3><p>${copy}</p>${label ? `<a class="btn btn-secondary" href="${href}">${label}</a>` : ''}</div>`; }
 function profileOverview(ctx, p) {
@@ -100,7 +133,7 @@ export function renderProfile(ctx) {
   if (!p) return `<main class="page-container"><div class="empty-state"><p class="eyebrow">YOUR OWN CORNER OF THE COMMUNITY</p><h1>Make yourself at home.</h1><p>Create a demo profile to manage event tickets, food orders, and your community presence. Firebase sign-in is not connected yet.</p><a class="btn btn-primary" href="#/join">Create a demo profile</a><a class="btn btn-secondary" href="#/community">Explore the community</a></div></main>`;
   const tabs = [['overview', 'Overview'], ['tickets', 'My tickets'], ['orders', 'Food orders'], ['edit', 'Edit profile'], ['privacy', 'Privacy & data']];
   let content = '';
-  if (profileTab === 'overview') content = profileOverview(ctx, p);
+  if (profileTab === 'overview') content = profileOverview(ctx, p) + communityCorner(ctx, p);
   if (profileTab === 'tickets') { const records = personalRecords(ctx, 'tickets'); content = `<div class="section-title-row"><div><p class="eyebrow">MEMORIES START HERE</p><h2>My tickets</h2></div><a class="btn btn-secondary" href="#/events">Explore events</a></div>${records.length ? `<div class="personal-tickets-grid">${records.map(t => ticketCard(ctx, t)).join('')}</div>` : empty(ctx, 'Your next memory awaits.', 'Tickets will appear here after you register for an event.', 'Find an event', '#/events')}`; }
   if (profileTab === 'orders') { const records = personalRecords(ctx, 'orders'); content = `<div class="section-title-row"><div><p class="eyebrow">A TASTE OF HOME</p><h2>My food orders</h2></div><a class="btn btn-secondary" href="#/events">Browse events</a></div>${records.length ? `<div class="personal-orders-grid">${records.map(o => orderCard(ctx, o)).join('')}</div>` : empty(ctx, 'Come hungry. Leave happy.', 'Order from an event’s food menu and manage pickup here.', 'Explore event menus', '#/events')}`; }
   if (profileTab === 'edit') content = `<form class="panel profile-form" id="community-edit-form"><p class="eyebrow">TELL YOUR STORY</p><h2>Edit my profile</h2>${profileFields(ctx, p)}<div class="form-submit-row"><button class="btn btn-primary" type="submit">Save profile</button><span>Saved on this device only</span></div><p class="form-error" role="alert" hidden></p></form>`;
@@ -125,6 +158,35 @@ function applyDirectoryFilters() {
   document.querySelectorAll('[data-community-action="filter"]').forEach(btn => { const on = btn.dataset.filter === directoryState.type; btn.classList.toggle('active', on); btn.setAttribute('aria-pressed', String(on)); });
   const mentor = document.querySelector('[data-community-action="mentors"]');
   if (mentor) { mentor.classList.toggle('active', directoryState.mentors); mentor.setAttribute('aria-pressed', String(directoryState.mentors)); }
+}
+function applyWallFilters() {
+  let count = 0;
+  const notes = document.querySelectorAll('[data-wall-category]');
+  notes.forEach(note => { const visible = wallFilter === 'all' || note.dataset.wallCategory === wallFilter; note.hidden = !visible; if (visible) count++; });
+  document.querySelectorAll('[data-community-action="post-filter"]').forEach(button => { const active = button.dataset.filter === wallFilter; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
+  const countEl = document.getElementById('wall-results');
+  if (countEl) countEl.textContent = `${count} ${count === 1 ? 'note' : 'notes'}${wallFilter !== 'all' ? ' in this category' : ' on this device'}`;
+  const empty = document.getElementById('wall-empty');
+  if (empty) empty.hidden = count > 0;
+  const emptyTitle = document.getElementById('wall-empty-title');
+  if (emptyTitle) emptyTitle.textContent = notes.length ? 'Start a new conversation here.' : 'Yours could be the first hello.';
+}
+function requireWallProfile(ctx) {
+  if (state(ctx).profile) return true;
+  ctx.modal('Your hello starts with a name', '<p>Create a local demo profile to leave notes, appreciate a post, or reply. Your profile and contributions stay on this device.</p><div class="modal-actions"><a id="wall-join" href="#/join" class="btn btn-primary">Create a demo profile ↗</a></div>', () => document.getElementById('wall-join')?.addEventListener('click', () => ctx.closeModal()));
+  return false;
+}
+function composePost(ctx, category = 'introduction') {
+  if (!requireWallProfile(ctx)) return;
+  ctx.modal('Leave a little note', `<form id="community-post-form"><p>A good adda starts with a little sharing.</p><label class="field"><span>What would you like to share?</span><select name="category">${Object.entries(postCategories).map(([key, label]) => `<option value="${key}" ${key === category ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field"><span>Your note *</span><textarea name="body" required maxlength="600" rows="5" placeholder="A little about me…"></textarea></label><p class="cw-compose-help">Share kindly. Your name appears beside your note. This saves a local demo note, visible only in this browser.</p><div class="modal-actions"><button type="submit" class="btn btn-primary">Pin my demo note ↗</button></div><p class="form-error" role="alert" hidden></p></form>`, () => {
+    document.getElementById('community-post-form')?.addEventListener('submit', event => { event.preventDefault(); const form = event.currentTarget, data = new FormData(form); try { ctx.store.createCommunityPost({category: data.get('category'), body: data.get('body')}); wallFilter = 'all'; ctx.closeModal(); ctx.render(); document.getElementById('community-wall')?.scrollIntoView({block: 'start'}); ctx.toast('Your note is pinned to this device’s adda wall.'); } catch (error) { showFormError(form, error); } });
+  });
+}
+function replyToPost(ctx, id) {
+  if (!requireWallProfile(ctx)) return;
+  const post = list(state(ctx).posts).find(item => item.id === id);
+  if (!post) return;
+  ctx.modal('Keep the conversation going', `<form id="community-reply-form"><blockquote class="cw-reply-context">${esc(ctx, post.body)}</blockquote><label class="field"><span>Your reply *</span><textarea name="body" rows="4" maxlength="300" required placeholder="I’d love to add…"></textarea></label><p class="cw-compose-help">Replies stay in this browser. No message will be sent.</p><div class="modal-actions"><button class="btn btn-primary" type="submit">Save demo reply ↗</button></div><p class="form-error" role="alert" hidden></p></form>`, () => { document.getElementById('community-reply-form')?.addEventListener('submit', event => { event.preventDefault(); const form = event.currentTarget; try { ctx.store.replyToCommunityPost(id, new FormData(form).get('body')); ctx.closeModal(); ctx.render(); ctx.toast('Your reply was saved on this device.'); } catch (error) { showFormError(form, error); } }); });
 }
 function readProfile(form, old = {}) {
   const data = new FormData(form);
@@ -154,6 +216,10 @@ function confirmAction(ctx, title, copy, label, action) { ctx.modal(title, `<p>$
 
 export function mountCommunity(ctx) {
   applyDirectoryFilters();
+  applyWallFilters();
+  const wallRequested = Boolean(globalThis.location?.hash?.includes('wall=1'));
+  if (wallRequested && !wallDeepLinkHandled) { const wall = document.getElementById('community-wall'), heading = document.getElementById('wall-title'); wall?.scrollIntoView?.({block: 'start'}); heading?.setAttribute('tabindex', '-1'); heading?.focus?.({preventScroll: true}); }
+  wallDeepLinkHandled = wallRequested;
   document.getElementById('community-search')?.addEventListener('input', event => { directoryState.query = event.target.value; applyDirectoryFilters(); });
   for (const formId of ['community-join-form', 'community-edit-form']) {
     document.getElementById(formId)?.addEventListener('submit', async event => {
@@ -166,6 +232,11 @@ export function mountCommunity(ctx) {
   }
   document.querySelectorAll('#app [data-community-action]').forEach(button => button.addEventListener('click', async () => {
     const action = button.dataset.communityAction, s = state(ctx);
+    if (action === 'post-filter') { wallFilter = button.dataset.filter; applyWallFilters(); }
+    if (action === 'post-compose') composePost(ctx, button.dataset.category);
+    if (action === 'post-reply') replyToPost(ctx, button.dataset.id);
+    if (action === 'post-heart' && requireWallProfile(ctx)) { try { ctx.store.togglePostHeart(button.dataset.id); ctx.render(); } catch (error) { ctx.toast(error.message); } }
+    if (action === 'post-delete') confirmAction(ctx, 'Remove your note?', 'This also removes its replies from this device’s adda wall. This cannot be undone.', 'Delete my note', () => { ctx.store.deleteCommunityPost(button.dataset.id); ctx.toast('Your note was removed.'); });
     if (action === 'filter') { directoryState.type = button.dataset.filter; applyDirectoryFilters(); }
     if (action === 'mentors') { directoryState.mentors = !directoryState.mentors; applyDirectoryFilters(); }
     if (action === 'clear-filters') { directoryState.query = ''; directoryState.type = 'all'; directoryState.mentors = false; const search = document.getElementById('community-search'); if (search) search.value = ''; applyDirectoryFilters(); }
@@ -177,10 +248,10 @@ export function mountCommunity(ctx) {
     if (action === 'cancel-order') confirmAction(ctx, 'Cancel this food order?', 'Your demo order will be cancelled. No real payment or refund is involved.', 'Cancel order', async () => { await ctx.store.cancelOrder(button.dataset.id); ctx.toast('Demo food order cancelled.'); });
     if (action === 'toggle-visibility' && s.profile) { try { await ctx.store.saveProfile({ ...s.profile, directoryVisible: !s.profile.directoryVisible }); ctx.toast(s.profile.directoryVisible ? 'Your profile is now hidden.' : (s.profile.status === 'approved' ? 'Your profile is now visible in the demo directory.' : 'Directory opt-in saved. Your listing is awaiting membership approval.')); ctx.render(); } catch (error) { ctx.toast(error.message); } }
     if (action === 'export-data' && s.profile) {
-      const payload = { exportedAt: new Date().toISOString(), demo: true, profile: s.profile, tickets: personalRecords(ctx, 'tickets'), orders: personalRecords(ctx, 'orders'), messages: list(s.messages).filter(m => m.fromUserId === s.profile.id || m.userId === s.profile.id), volunteerApplications: list(s.volunteers).filter(m => m.userId === s.profile.id) };
+      const payload = { exportedAt: new Date().toISOString(), demo: true, profile: s.profile, tickets: personalRecords(ctx, 'tickets'), orders: personalRecords(ctx, 'orders'), messages: list(s.messages).filter(m => m.fromUserId === s.profile.id || m.userId === s.profile.id), volunteerApplications: list(s.volunteers).filter(m => m.userId === s.profile.id), communityNotes: list(s.posts).filter(m => m.userId === s.profile.id) };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'my-bss-demo-data.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); ctx.toast('Your demo data download is ready.');
     }
-    if (action === 'delete-profile' && s.profile) confirmAction(ctx, 'Delete your demo profile?', 'This removes your profile from this browser and the directory. Existing ticket, food order, and request records remain in the local demo. Download your data first if you’d like a copy. This cannot be undone.', 'Delete my profile', async () => { await ctx.store.removeRecord('members', s.profile.id); profileTab = 'overview'; ctx.toast('Your demo profile has been deleted.'); });
+    if (action === 'delete-profile' && s.profile) confirmAction(ctx, 'Delete your demo profile?', 'This removes your profile and adda wall contributions from this browser and the directory. Existing ticket, food order, and request records remain in the local demo. Download your data first if you’d like a copy. This cannot be undone.', 'Delete my profile', async () => { await ctx.store.removeRecord('members', s.profile.id); profileTab = 'overview'; ctx.toast('Your demo profile has been deleted.'); });
   }));
 }
 
