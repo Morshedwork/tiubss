@@ -2,6 +2,15 @@
 
 A responsive community website inspired by Bangladeshi rickshaw painting, peacocks, lotus flowers, and the visual brief supplied for TIU Bangladesh Student Society.
 
+## Rickshaw paint visual refresh
+
+The refreshed homepage uses a new original painted Dhaka rickshaw centerpiece, a cream/forest/red/ultramarine palette, decorative floral trim, ticket-style event cards, a food showcase, community membership cards, a layered gallery, and a framed red invitation panel. Inner routes retain all existing functionality with matching motifs and readable operations screens.
+
+`dist/js/home-v2.js`, `dist/rickshaw.css`, and `dist/rickshaw-inner.css` contain the visual revision. `dist/js/motion.js` adds progressively enhanced scroll reveals, fine-pointer parallax, subtle card tilt, and a persisted Pause motion control on the homepage and footer. System reduced-motion settings are respected by default. Animation is decorative and never required to use the product. Missing observer APIs leave all content visible.
+
+Refresh validation: 19 virtual-DOM integration checks covering 47 routes and existing flows passed. CSS parsing/grammar checks reported no syntax or value errors. No browser visual/mobile rendering check was available in this environment.
+
+
 ## Current delivery
 
 The published site is an owner-private interactive demonstration. It is a buildless HTML/CSS/JavaScript app in `dist/`; no framework build is required. All member records, registrations, food orders, gallery uploads, and admin changes in this demo are saved in browser localStorage (`tiu-bss-demo-v1`). They are not shared between devices, authenticated, or sent to a Firebase database. Use sample information.
@@ -65,6 +74,8 @@ The static app requires no npm packages. Tests exercise capacity, deduplication,
 
 ## Assets and credits
 
+- `dist/assets/rickshaw-hero-v2.webp`: original generated hand-painted Dhaka rickshaw illustration for the refreshed homepage, created with the built-in Image Generation tool. Prompt called for a three-quarter rear-side rickshaw, bright fuchsia canopy, blue wheels, peacock/rose panels, vivid enamel-paint colors, warm cream background, no text, people, logos, or watermark.
+- `rickshaw-flower.svg`, `rickshaw-vine.svg`, `rickshaw-trim.svg`, and `rickshaw-bird.svg`: original decorative SVG artwork extending the site’s folk-art visual language. Self-contained, no external resources.
 - `dist/assets/folk-hero.webp`: original generated peacock/lotus illustration made for this website using the built-in image generation tool. Prompt: “Original hand-painted Bangladeshi rickshaw folk art, two golden peacocks facing one another, emerald and jade leaves, cream dotted scallops, pink lotus flowers, gold linework, deep forest-green background, no text, no logos, no watermark.”
 - `reference-peacocks.webp` and `reference-flowers.webp`: uploaded visual references supplied for this task. They are labeled as artwork rather than event photographs.
 - Event posters and food illustrations: original self-contained SVG artwork. Poster fonts are outlined for portable rendering.
