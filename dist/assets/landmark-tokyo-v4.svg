@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 200" width="180" height="200" role="img" aria-labelledby="title">
+  <title id="title">Tokyo keepsake stamp, a folk-art tower and cherry blossom</title>
+  <path d="M12 7 18 12 24 7 30 12 36 7 42 12 48 7 54 12 60 7 66 12 72 7 78 12 84 7 90 12 96 7 102 12 108 7 114 12 120 7 126 12 132 7 138 12 144 7 150 12 156 7 162 12 168 7 173 13 168 19 173 25 168 31 173 37 168 43 173 49 168 55 173 61 168 67 173 73 168 79 173 85 168 91 173 97 168 103 173 109 168 115 173 121 168 127 173 133 168 139 173 145 168 151 173 157 168 163 173 169 168 175 173 181 168 193 162 188 156 193 150 188 144 193 138 188 132 193 126 188 120 193 114 188 108 193 102 188 96 193 90 188 84 193 78 188 72 193 66 188 60 193 54 188 48 193 42 188 36 193 30 188 24 193 18 188 12 193 7 181 12 175 7 169 12 163 7 157 12 151 7 145 12 139 7 133 12 127 7 121 12 115 7 109 12 103 7 97 12 91 7 85 12 79 7 73 12 67 7 61 12 55 7 49 12 43 7 37 12 31 7 25 12 19 7 13Z" fill="#fff4d6" stroke="#174b3e" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M23 25Q87 23 157 25L157 176Q90 178 23 176Z" fill="none" stroke="#174b3e" stroke-width="1.4"/>
+  <path d="M28 30 152 30M28 171 152 171" fill="none" stroke="#f5bd42" stroke-width="3"/>
+  <g stroke="#d94343" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M90 38V55M87 54 82 83H98L93 54Z" fill="#d94343" stroke-width="2"/>
+    <path d="M82 87Q75 131 53 158H69L84 128H96L111 158H127Q105 129 98 87Z" fill="none" stroke-width="3.2"/>
+    <path d="M79 97 103 112H77L107 133H73M101 97 77 112 107 133M69 138 112 148M111 138 68 148" fill="none" stroke-width="1.8"/>
+    <path d="M78 82H102V89H78ZM74 118H106V125H74Z" fill="#d94343" stroke-width="1.5"/>
+    <path d="M82 85H98M79 121H101" stroke="#fff4d6" stroke-width="1.3"/>
+    <path d="M54 158H71M109 158H127" stroke-width="4"/>
+  </g>
+  <g stroke="#174b3e" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M119 77Q125 58 144 51M128 62 127 49M135 57 144 61" fill="none"/>
+    <path d="M125 66Q114 64 118 56Q126 57 125 66ZM137 54Q137 44 145 45Q146 52 137 54Z" fill="#174b3e" stroke-width=".8"/>
+    <path d="M127 45C120 41 123 35 128 39C132 32 137 36 133 42C141 42 141 48 134 48C135 55 129 57 127 50C121 54 117 48 127 45Z" fill="#d94343" stroke="none"/>
+    <path d="M143 64C137 61 139 56 144 59C147 54 152 57 148 62C155 62 154 67 148 67C150 73 144 74 143 68C137 71 135 66 143 64Z" fill="#d94343" stroke="none"/>
+  </g>
+  <g fill="#f5bd42"><circle cx="130" cy="44" r="2"/><circle cx="146" cy="63" r="1.7"/><circle cx="42" cy="50" r="2"/><circle cx="48" cy="89" r="2"/><circle cx="137" cy="114" r="2"/></g>
+  <path d="M36 78Q41 74 46 78M39 71Q44 67 49 71M57 45Q62 41 67 45M44 163Q86 167 136 163" fill="none" stroke="#174b3e" stroke-width="1.4" stroke-linecap="round"/>
+</svg>

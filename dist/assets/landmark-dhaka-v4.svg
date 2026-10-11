@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 200" width="180" height="200" role="img" aria-labelledby="title">
+  <title id="title">Dhaka keepsake stamp, a folk-art impression of the Shaheed Minar</title>
+  <path d="M12 7 18 12 24 7 30 12 36 7 42 12 48 7 54 12 60 7 66 12 72 7 78 12 84 7 90 12 96 7 102 12 108 7 114 12 120 7 126 12 132 7 138 12 144 7 150 12 156 7 162 12 168 7 173 13 168 19 173 25 168 31 173 37 168 43 173 49 168 55 173 61 168 67 173 73 168 79 173 85 168 91 173 97 168 103 173 109 168 115 173 121 168 127 173 133 168 139 173 145 168 151 173 157 168 163 173 169 168 175 173 181 168 193 162 188 156 193 150 188 144 193 138 188 132 193 126 188 120 193 114 188 108 193 102 188 96 193 90 188 84 193 78 188 72 193 66 188 60 193 54 188 48 193 42 188 36 193 30 188 24 193 18 188 12 193 7 181 12 175 7 169 12 163 7 157 12 151 7 145 12 139 7 133 12 127 7 121 12 115 7 109 12 103 7 97 12 91 7 85 12 79 7 73 12 67 7 61 12 55 7 49 12 43 7 37 12 31 7 25 12 19 7 13Z" fill="#fff4d6" stroke="#174b3e" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M23 25Q87 23 157 25L157 176Q90 178 23 176Z" fill="none" stroke="#174b3e" stroke-width="1.4"/>
+  <path d="M28 30 152 30M28 171 152 171" fill="none" stroke="#f5bd42" stroke-width="3"/>
+  <g fill="#d94343">
+    <circle cx="92" cy="99" r="32"/>
+    <circle cx="38" cy="43" r="2"/><circle cx="142" cy="43" r="2"/>
+    <circle cx="38" cy="158" r="2"/><circle cx="142" cy="158" r="2"/>
+  </g>
+  <g fill="#fff4d6" stroke="#174b3e" stroke-width="2.6" stroke-linejoin="round">
+    <path d="M42 143V104H54V143M61 143V88H74V143"/>
+    <path d="M80 143V66L96 54 111 67V143H103V72L96 67 88 72V143Z"/>
+    <path d="M117 143V88H130V143M137 143V104H149V143"/>
+    <path d="M38 143H152V149H34V155H156" fill="none"/>
+  </g>
+  <g fill="#174b3e" stroke="#174b3e" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M38 88Q45 71 39 57" fill="none" stroke-width="1.5"/>
+    <path d="M40 73Q29 71 31 62Q42 64 40 73ZM40 81Q50 78 49 69Q39 72 40 81ZM38 64Q30 59 34 52Q42 58 38 64Z" stroke-width=".7"/>
+    <path d="M137 80Q133 65 142 56" fill="none" stroke-width="1.5"/>
+    <path d="M137 72Q127 69 130 62Q139 65 137 72ZM137 65Q147 64 149 57Q140 57 137 65Z" stroke-width=".7"/>
+  </g>
+  <path d="M61 162Q90 158 122 162" fill="none" stroke="#174b3e" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="m86 40 4-4 4 4-4 4Z" fill="#f5bd42"/>
+</svg>

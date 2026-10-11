@@ -2,11 +2,13 @@
 
 A responsive community website inspired by Bangladeshi rickshaw painting, peacocks, lotus flowers, and the visual brief supplied for TIU Bangladesh Student Society.
 
-## Bangladesh–Japan community refresh
+## Rickshaw centerpiece refresh
 
-The homepage pairs bold editorial type with an original painted landscape connecting Bangladesh’s Shaheed Minar and Parliament House to Tokyo Tower, Mount Fuji, and cherry blossoms. The supplied peacock and rose references appear in the story collage, gallery, community welcome, join/member surfaces, and profile corner. An interactive cultural trail reveals four short landmark stories and links to official reference sources. `#/culture` presents the complete artwork.
+The homepage brings back the colourful rickshaw as a freestanding, transparent illustration on an open cream canvas. Small Dhaka and Tokyo postage stamps, a subtle route line, a Bengali seal, and a user-triggered bell add character around the vehicle. The large landmark mural no longer appears in the homepage, culture, or story layouts. The culture explorer uses individual illustrated stamps instead of scene crops, and its art viewer opens the rickshaw.
 
-`dist/js/home-v2.js`, `dist/js/culture-v3.js`, `dist/rickshaw.css`, `dist/culture-v3.css`, `dist/rickshaw-inner.css`, and `dist/community-wall.css` contain the visual revision. Motion includes route and section entrances, fine-pointer panorama parallax, floating ornaments, SVG path drawing, card feedback, and modal transitions. The persisted Pause motion control and system reduced-motion preference remain supported. Missing observer APIs leave content visible.
+The supplied peacock and rose references remain in the story collage, gallery, community welcome, join/member surfaces, and profile corner. `dist/js/rickshaw-stage.js` and `dist/rickshaw-v4.css` add the current composition to the existing homepage and cultural explorer. The optional bell plays a short synthesized chime only after an explicitly labeled button click; it also works with a visual acknowledgement when audio is unavailable.
+
+The motion controls remain supported: pause, reduced motion, route and section entrances, pointer parallax, and interaction feedback. Missing browser enhancement APIs leave content visible. Validation: 32 virtual-DOM interaction checks passed across the existing routes; all 10 CSS sources passed parsing/grammar checks. Browser visual/mobile rendering verification is unavailable in this environment.
 
 The community adda wall supports profile-required posts, introductions/questions/moments filters, reactions, replies, author deletion, and admin hide/restore moderation. It starts empty, with illustrated conversation prompts; it does not invent community activity. Profile removal clears associated contributions. Admin settings now update the displayed community name, Instagram link, and contact email; announcements appear on the homepage. Food quantity changes preserve the pickup slot and can remove items after inventory drops below an existing cart quantity.
 
@@ -25,7 +27,7 @@ The interface is intentionally explicit about this boundary. Demo tickets do not
 - `#/events/:slug/food`: event menu, quantities, cart, pickup slot and cash-due ordering.
 - `#/join`, `#/profile`: profile, education and employment, directory opt-in, tickets, orders, export and profile removal.
 - `#/community`, `#/alumni`, `#/members/:id`: searchable opted-in directory and member profiles. `#/community?wall=1` opens the interactive local adda wall.
-- `#/culture`: Bangladesh–Japan artwork and selectable cultural stories.
+- `#/culture`: individual landmark postcards, selectable cultural stories, and the freestanding rickshaw artwork.
 - `#/admin/wall`: community post moderation and reply review.
 - `#/gallery`: artwork lightbox and category filters.
 - `#/about`, `#/mission`, `#/history`: community story and values.
@@ -78,7 +80,10 @@ The static app requires no npm packages. Tests exercise capacity, deduplication,
 
 ## Assets and credits
 
-- `dist/assets/bangladesh-japan-v3.webp`: original mural generated with the built-in Image Generation tool. Final prompt: “An exquisitely detailed handpainted Bangladeshi rickshaw-art landscape joining Bangladesh to Japan, inspired by the supplied peacock and rose art; saturated green, vermilion, sunflower yellow, cobalt and fuchsia enamel brushwork; stylised Dhaka Parliament House, Shaheed Minar, a Lalbagh-inspired pavilion, painted cycle rickshaw, river, boat, peacocks and roses; Tokyo Tower, distant Mount Fuji, sakura and a traditional gateway; small groups of fictional university-age friends; warm cream sky and botanical border. A hopeful cultural mural, no text, logos, watermarks, photorealism or geographic accuracy implied.” The detailed original prompt is in `art-direction-v3.md`. Final source asset is 1536 × 1024; the site uses WebP compression.
+- `dist/assets/rickshaw-cutout-v4.webp`: transparent version of the earlier rickshaw centerpiece, edited with the built-in Image Generation tool. Prompt: “Background-extraction edit of the original painted Dhaka cycle rickshaw. Keep only the exact rickshaw: three-quarter rear-side angle, fuchsia canopy, green peacock-and-rose back panel, blue wheels, frame, handlebars, and painted texture. Remove the cream canvas, external birds and flowers, river, sunset, palms, and ground. Preserve genuinely transparent areas between spokes and around handlebars. Keep the complete vehicle in frame with modest breathing room. No additions, frame, text, watermarks, or new background.” Alpha transparency is preserved in the deployed WebP.
+- `landmark-dhaka-v4.svg`, `landmark-tokyo-v4.svg`, `landmark-parliament-v4.svg`: original code-native postage-stamp illustrations with cream perforated edges, forest linework, red focal accents, and gold botanical details.
+
+- `dist/assets/bangladesh-japan-v3.webp`: retained prior-version artwork, no longer displayed in the current page layouts. Original mural generated with the built-in Image Generation tool. Final prompt: “An exquisitely detailed handpainted Bangladeshi rickshaw-art landscape joining Bangladesh to Japan, inspired by the supplied peacock and rose art; saturated green, vermilion, sunflower yellow, cobalt and fuchsia enamel brushwork; stylised Dhaka Parliament House, Shaheed Minar, a Lalbagh-inspired pavilion, painted cycle rickshaw, river, boat, peacocks and roses; Tokyo Tower, distant Mount Fuji, sakura and a traditional gateway; small groups of fictional university-age friends; warm cream sky and botanical border. A hopeful cultural mural, no text, logos, watermarks, photorealism or geographic accuracy implied.” The detailed original prompt is in `art-direction-v3.md`. Final source asset is 1536 × 1024; the site uses WebP compression.
 - `dist/assets/sakura-folk-v3.svg`: original code-native ornament combining sakura blossoms with the site’s painted leaves.
 - Landmark references: Bangladesh Tourism Board ([Shaheed Minar](https://beautifulbangladesh.gov.bd/cat/landmarks/92), [National Parliament House](https://beautifulbangladesh.gov.bd/loc/dhaka/102)) and GO TOKYO ([Tokyo Tower](https://www.gotokyo.org/en/spot/4/index.html), [Spring](https://www.gotokyo.org/en/story/guide/spring/index.html)). These links appear alongside cultural stories; generated art is an imagined interpretation, not documentation of the places or events.
 
