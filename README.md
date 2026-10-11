@@ -2,6 +2,16 @@
 
 A responsive community website inspired by Bangladeshi rickshaw painting, peacocks, lotus flowers, and the visual brief supplied for TIU Bangladesh Student Society.
 
+## Festive digital mela and art studio
+
+The new digital mela is available on the homepage and at `#/mela`. Three original transparent painted stalls—food, art, and adda—sit as individual objects on an open cream canvas. The original hero rickshaw remains, and a smaller rickshaw travels between stalls when visitors select a stop or choose **Hop on**. Each explored stall leaves a browser-local keepsake stamp. Food selection connects to the existing event menu and ticket flow; the adda stall opens the community wall. Bunting, lantern details, bright signboards and softly glowing lights carry the festive mood through the site.
+
+`#/art-studio` is a functional postcard maker. Visitors choose a palette and rickshaw/flower/bird motif, add a Bangla or English greeting, note and sign-off, save a local draft, download a 1200 × 1500 PNG, or save a compressed print to the browser-local gallery. Canvas export waits for the same-origin motif and fonts, handles failures, and suppresses stale output after navigation. These controls do not publish to a live community or send messages. Studio **Start fresh** clears its draft; clearing site data clears mela keepsakes. The demo reset only resets the main community data store.
+
+Implementation: `dist/js/mela.js`, `dist/mela.css`, `dist/js/art-studio.js`, `dist/art-studio.css`, and `dist/festive-v5.css`. The final theme link is loaded after the prior styles. All motion follows the existing pause and reduced-motion settings. Audio is still only the explicitly clicked hero rickshaw bell.
+
+Validation: 41 virtual-DOM interaction checks passed across 52 routes, including stall navigation, keepsakes, food-event selection, art controls, drafts, gallery saves, export error recovery and navigation during export. All 15 store/QR tests passed. All 13 CSS sources parsed without errors. The export tests use explicit Canvas/Image stubs to check control flow and dimensions; actual PNG pixels and responsive browser rendering have not been verified because browser QA is unavailable here.
+
 ## Rickshaw centerpiece refresh
 
 The homepage brings back the colourful rickshaw as a freestanding, transparent illustration on an open cream canvas. Small Dhaka and Tokyo postage stamps, a subtle route line, a Bengali seal, and a user-triggered bell add character around the vehicle. The large landmark mural no longer appears in the homepage, culture, or story layouts. The culture explorer uses individual illustrated stamps instead of scene crops, and its art viewer opens the rickshaw.
@@ -28,6 +38,8 @@ The interface is intentionally explicit about this boundary. Demo tickets do not
 - `#/join`, `#/profile`: profile, education and employment, directory opt-in, tickets, orders, export and profile removal.
 - `#/community`, `#/alumni`, `#/members/:id`: searchable opted-in directory and member profiles. `#/community?wall=1` opens the interactive local adda wall.
 - `#/culture`: individual landmark postcards, selectable cultural stories, and the freestanding rickshaw artwork.
+- `#/mela` (also `#/stalls`): illustrated interactive food, art and community stalls, a rickshaw route, and local keepsake stamps.
+- `#/art-studio`: personalised painted postcards, local drafts, PNG downloads, and gallery saves.
 - `#/admin/wall`: community post moderation and reply review.
 - `#/gallery`: artwork lightbox and category filters.
 - `#/about`, `#/mission`, `#/history`: community story and values.
@@ -79,6 +91,9 @@ npm run build
 The static app requires no npm packages. Tests exercise capacity, deduplication, one-time check-in/pickup, inventory validation, cash gates, cancellation, persistence, CSV safety, and QR construction. Firebase TypeScript compilation passes. Firebase emulator/security tests and live provider integration have not been run without a configured project. Visual browser QA is unavailable in this execution environment; responsive styles and SVG assets have been inspected at source/artwork level.
 
 ## Assets and credits
+
+- `dist/assets/mela-stall-food-v5.webp`, `mela-stall-art-v5.webp`, and `mela-stall-adda-v5.webp`: original freestanding hand-painted festival stalls, generated using the built-in Image Generation tool with transparent backgrounds. Palette and floral sign details reference the newly supplied burgundy/red/pink/yellow Bangla artwork. Each 1254-square source retains alpha transparency; no full background scene was added. Final prompts are recorded in `art-direction-v5.md`.
+- `festival-bunting-v5.svg` and `festival-lantern-v5.svg`: original code-native decorations extending the site's existing folk ornament system.
 
 - `dist/assets/rickshaw-cutout-v4.webp`: transparent version of the earlier rickshaw centerpiece, edited with the built-in Image Generation tool. Prompt: “Background-extraction edit of the original painted Dhaka cycle rickshaw. Keep only the exact rickshaw: three-quarter rear-side angle, fuchsia canopy, green peacock-and-rose back panel, blue wheels, frame, handlebars, and painted texture. Remove the cream canvas, external birds and flowers, river, sunset, palms, and ground. Preserve genuinely transparent areas between spokes and around handlebars. Keep the complete vehicle in frame with modest breathing room. No additions, frame, text, watermarks, or new background.” Alpha transparency is preserved in the deployed WebP.
 - `landmark-dhaka-v4.svg`, `landmark-tokyo-v4.svg`, `landmark-parliament-v4.svg`: original code-native postage-stamp illustrations with cream perforated edges, forest linework, red focal accents, and gold botanical details.

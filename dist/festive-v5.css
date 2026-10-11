@@ -1,0 +1,96 @@
+/* Small fairground details keep the cream canvas and the painted rickshaws open. */
+.header-surface::after {
+  content:"";
+  display:block;
+  height:28px;
+  background:url("assets/festival-bunting-v5.svg") repeat-x center top / 240px 28px;
+  pointer-events:none;
+}
+.top-ribbon {background:#75352f;color:#fff0cc}
+.top-ribbon .ribbon-dot {background:#e5b342;outline-color:#c66e55}
+.nav-links a.active {color:#ac4034}
+.brand-symbol img {filter:drop-shadow(1px 2px 0 #dfb64755)}
+.rk-hero-topline {padding-top:24px}
+.rk-hero-corners {
+  position:absolute;
+  top:46px;
+  left:9px;
+  width:27px;
+  height:99px;
+  background:url("assets/festival-lantern-v5.svg") no-repeat center top / contain;
+  pointer-events:none;
+  transform-origin:50% 0;
+}
+.rk-hero-corners::after {
+  content:"";
+  position:absolute;
+  left:calc(min(100vw, 1560px) - 52px);
+  top:32px;
+  width:27px;
+  height:99px;
+  background:inherit;
+  transform:rotate(-3deg);
+  transform-origin:50% 0;
+}
+.rk-section-heading .rk-kicker>span {color:#ba4237;text-shadow:2px 2px 0 #e9c66f}
+.rk-section-heading h2 em {color:#386747}
+.rk-gatherings .rk-section-heading h2 em {color:#a74537}
+.rk-gallery-section .rk-section-heading h2 em {color:#92516b}
+.rk-hero-bottom {border-top-color:#d8bd7c}
+.rk-hero-bottom a>span {color:#a33e30}
+.rk-event-ticket {box-shadow:0 4px 0 #dcc79744}
+.rk-underlined {text-decoration-thickness:1px;text-underline-offset:5px}
+.rk-community-invite {border-top-color:#d0ab62;border-bottom-color:#d0ab62}
+.footer {padding-top:71px}
+.footer::before {
+  top:7px;
+  height:32px;
+  background:url("assets/festival-bunting-v5.svg") repeat-x center top / 275px 32px;
+}
+.footer-main {position:relative}
+.footer-links h4 {color:#f1c865;letter-spacing:1.4px}
+.footer-links a {transition:color .2s,transform .2s}
+.footer-links a:hover {color:#f5d991;transform:translateX(3px)}
+.page-container>.page-heading>.eyebrow {color:#a34436}
+.events-page .page-heading h1,.community-page .page-heading h1 {color:#174632}
+.events-page .filter-chip.active,.community-page .filter-chip.active {box-shadow:2px 2px 0 #e9c876}
+.rk-artprint:focus-visible,.rk-underlined:focus-visible {outline:3px solid #bc4d3e;outline-offset:6px}
+@media(min-width:1400px) {
+  .footer-main::after {
+    content:"";
+    position:absolute;
+    right:-59px;
+    top:-51px;
+    width:37px;
+    height:125px;
+    background:url("assets/festival-lantern-v5.svg") no-repeat center top / contain;
+    pointer-events:none;
+    transform-origin:50% 0;
+  }
+}
+@media(prefers-reduced-motion:no-preference) {
+  html[data-motion="on"] .rk-hero-corners {animation:festival-lantern-sway 7s ease-in-out infinite}
+  html[data-motion="on"] .footer-main::after {animation:festival-lantern-sway 8.5s ease-in-out infinite}
+}
+@keyframes festival-lantern-sway {0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg)}}
+@media(max-width:1100px) {
+  .rk-hero-corners {width:20px;left:8px;top:47px;height:77px}
+  .rk-hero-corners::after {display:none}
+}
+@media(max-width:650px) {
+  .header-surface::after {height:23px;background-size:200px 23px}
+  .rk-hero-topline {padding-top:20px}
+  .rk-hero-corners {display:none}
+  .footer {padding-top:63px}
+  .footer::before {top:8px;height:26px;background-size:223px 26px}
+  .rk-section-heading .rk-kicker>span {text-shadow:1px 1px 0 #e9c66f}
+}
+html[data-motion="off"] .rk-hero-corners,
+html[data-motion="off"] .footer-main::after {animation:none!important}
+@media(prefers-reduced-motion:reduce) {
+  .rk-hero-corners,.footer-main::after {animation:none!important}
+  .footer-links a {transition:none}
+}
+@media print {
+  .rk-hero-corners,.footer-main::after,.header-surface::after {display:none!important}
+}
