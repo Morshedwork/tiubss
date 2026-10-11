@@ -3,8 +3,10 @@
  * authorization, payment, or multi-user inventory service. Production needs
  * authenticated server transactions and verified payment callbacks.
  */
+import {normalizeInstagramReelURL, REEL_CATEGORIES} from './instagram.js';
+
 const STORAGE_KEY = 'tiu-bss-demo-v1';
-const EDITABLE_COLLECTIONS = new Set(['events', 'menu', 'vendors', 'members', 'gallery', 'news', 'volunteers', 'messages', 'committee', 'partners']);
+const EDITABLE_COLLECTIONS = new Set(['events', 'menu', 'vendors', 'members', 'gallery', 'reels', 'news', 'volunteers', 'messages', 'committee', 'partners']);
 const EXPORTABLE_COLLECTIONS = new Set([...EDITABLE_COLLECTIONS, 'tickets', 'orders', 'audits', 'posts']);
 const subscribers = new Set();
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -64,6 +66,7 @@ function seed() {
       {id: 'g2', title: 'Rooted in tradition', category: 'Art & Culture', image: 'assets/reference-flowers.webp', caption: 'Artwork supplied as a visual reference for this website.', isDemo: true},
       {id: 'g3', title: 'A new year together', category: 'Celebrations', image: 'assets/event-boishakh.svg', caption: 'Sample illustration for the Pohela Boishakh event.', isDemo: true}
     ],
+    reels: [],
     news: [
       {id: 'n1', title: 'A little closer to home', category: 'Community', date: '2026-10-01', excerpt: 'Discover a place to connect, celebrate, and grow together.', body: 'Welcome to our interactive community website preview. Explore sample events, build your profile, and discover how this space can bring students, alumni, and friends together.', status: 'published', image: 'assets/reference-flowers.webp', isDemo: true},
       {id: 'n2', title: 'Your next chapter starts with a conversation', category: 'Alumni', date: '2026-10-03', excerpt: 'Explore the sample alumni directory and mentor profiles.', body: 'Our alumni directory is designed to help community members share their journeys and support one another. All currently displayed profiles are samples.', status: 'published', image: 'assets/event-career.svg', isDemo: true}
@@ -87,6 +90,7 @@ function readStored() {
       if (parsed.committee === undefined) parsed.committee = [];
       if (parsed.partners === undefined) parsed.partners = [];
       if (parsed.posts === undefined) parsed.posts = [];
+      if (parsed.reels === undefined) parsed.reels = [];
     }
     const lists = [...EXPORTABLE_COLLECTIONS];
     if (!parsed || !lists.every(key => Array.isArray(parsed[key])) || !parsed.settings || typeof parsed.settings !== 'object') return null;
@@ -167,6 +171,20 @@ function validCmsImage(value) {
 }
 
 function validateRecord(collection, record, next) {
+  if (collection === 'reels') {
+    record.title = textValue(record.title);
+    record.caption = textValue(record.caption);
+    record.url = normalizeInstagramReelURL(record.url);
+    record.category = textValue(record.category);
+    record.status = textValue(record.status) || 'draft';
+    record.createdAt = next.reels.find(reel => reel.id === record.id)?.createdAt || now();
+    if (!record.title || record.title.length > 100) fail('Add a reel title of 1–100 characters.');
+    if (record.caption.length > 1000) fail('Keep the reel caption to 1,000 characters or fewer.');
+    if (!record.url) fail('Use a direct Instagram reel link beginning with https://www.instagram.com/reel/.');
+    if (!REEL_CATEGORIES.includes(record.category)) fail('Choose a reel section from the list.');
+    if (!['draft', 'published'].includes(record.status)) fail('Choose draft or published for this reel.');
+    if (next.reels.some(reel => reel.id !== record.id && normalizeInstagramReelURL(reel.url) === record.url)) fail('This Instagram reel has already been added.');
+  }
   if (collection === 'committee') {
     record.name = textValue(record.name);
     record.role = textValue(record.role);
@@ -253,6 +271,25 @@ export function saveRecord(collection, record) {
     else next[collection].unshift(saved);
     if (collection === 'members' && id === 'me') next.profile = saved;
     return saved;
+  });
+}
+
+export function importInstagramReels(urls, category = 'Community', status = 'draft') {
+  const lines = (Array.isArray(urls) ? urls : String(urls ?? '').split(/\r?\n/)).map(textValue).filter(Boolean);
+  if (!lines.length || lines.length > 100) fail('Add 1–100 direct reel links, one per line.');
+  return mutate('reels_imported', 'reels', '', next => {
+    const imported = [];
+    for (const [index, url] of lines.entries()) {
+      let reel;
+      try {
+        reel = validateRecord('reels', {id: uid('reel'), title: `Community reel ${String(next.reels.length + 1).padStart(2, '0')}`, category, url, caption: '', status, isDemo: true}, next);
+      } catch (error) {
+        fail(`Line ${index + 1}: ${error.message} No reels were imported.`);
+      }
+      next.reels.push(reel);
+      imported.push(reel);
+    }
+    return imported;
   });
 }
 

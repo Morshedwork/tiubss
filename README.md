@@ -111,3 +111,13 @@ The static app requires no npm packages. Tests exercise capacity, deduplication,
 - Scannable QR generation uses the bundled Kazuhiko Arase QRCode encoder. See `THIRD_PARTY_NOTICE.txt` for preserved notices.
 
 No official committee biographies, real upcoming-event claims, member photographs, or organizational statistics were invented. Seeded records are explicitly demonstration content.
+
+## Community homepage and Instagram sections (V6)
+
+The homepage now starts with people, a filterable community noticeboard, the adda wall and gatherings. The painted rickshaw lives in a smaller ride-to-the-mela section further down. Homepage note actions reuse the working community composer and replies. A numbered section navigator moves focus and respects motion preferences.
+
+`#/reels` separates Community, Gatherings, Food & mela, and Bangladesh × Japan reel links. Instagram is not queried on initial page load. A visitor can explicitly load an Instagram iframe for a published, validated reel, with a permanent direct link when Instagram refuses the preview. Provider playback has not been verified in a live browser. No reel content, cover photos, view counts, likes, or accounts were fabricated. The account feed could not be retrieved during development.
+
+Admin → Instagram reels accepts individual URLs or atomic batches of 1–100 direct links. It supports draft review, editable titles/captions/categories, publishing and removal. These are browser-local demo records, not an automatic or shared Instagram feed. To supply a curated deployment seed, provide verified direct public reel URLs and their desired categories.
+
+The gallery has separate Community photos and Artworks sections; bundled illustrations stay in Artworks even when categorized as a celebration. This update preserves existing locally saved profiles, orders, gallery items and community posts.
