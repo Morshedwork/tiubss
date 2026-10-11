@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function role(name) {
+      return signedIn() && request.auth.token.get('roles', []).hasAny([name])
+        && exists(/databases/$(database)/documents/staffAssignments/$(request.auth.uid))
+        && get(/databases/$(database)/documents/staffAssignments/$(request.auth.uid)).data.roles.hasAny([name]);
+    }
+    function admin() { return role('admin') || role('super_admin'); }
+    function assigned(eventId, vendorId, roles) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/staffAssignments/$(request.auth.uid))
+        && request.auth.token.get('roles', []).toSet().intersection(get(/databases/$(database)/documents/staffAssignments/$(request.auth.uid)).data.roles.toSet()).hasAny(roles)
+        && get(/databases/$(database)/documents/staffAssignments/$(request.auth.uid)).data.eventIds.hasAny([eventId])
+        && (vendorId == '' || get(/databases/$(database)/documents/staffAssignments/$(request.auth.uid)).data.vendorIds.hasAny([vendorId]));
+    }
+    function owner() { return signedIn() && resource.data.uid == request.auth.uid; }
+    function publicEvent(eventId) { return get(/databases/$(database)/documents/events/$(eventId)).data.status == 'published'; }
+    // Private member documents are never used for directory queries.
+    match /users/{uid} {
+      allow read: if signedIn() && (uid == request.auth.uid || admin());
+      allow write: if false;
+    }
+    match /publicProfiles/{uid} { allow read: if true; allow write: if false; }
+    match /staffAssignments/{uid} { allow read: if signedIn() && (uid == request.auth.uid || admin()); allow write: if false; }
+    match /events/{eventId} {
+      allow read: if resource.data.status == 'published' || admin() || assigned(eventId, '', ['event_manager','checkin_staff','food_vendor_manager','kitchen_staff','pickup_staff']);
+      allow write: if false;
+    }
+    match /registrations/{registrationId} {
+      allow read: if owner() || admin() || assigned(resource.data.eventId, '', ['event_manager','checkin_staff']);
+      allow write: if false;
+    }
+    match /menuItems/{itemId} {
+      allow read: if (resource.data.active == true && publicEvent(resource.data.eventId)) || admin() || assigned(resource.data.eventId, resource.data.vendorId, ['food_vendor_manager','kitchen_staff','pickup_staff']);
+      allow write: if false;
+    }
+    match /foodOrders/{orderId} {
+      allow read: if owner() || admin() || assigned(resource.data.eventId, resource.data.vendorId, ['food_vendor_manager','kitchen_staff','pickup_staff']);
+      allow write: if false;
+    }
+    match /paymentTransactions/{paymentId} {
+      allow read: if owner() || admin() || assigned(resource.data.eventId, resource.data.vendorId, ['food_vendor_manager','pickup_staff']);
+      allow write: if false;
+    }
+    match /foodPickupRedemptions/{id} {
+      allow read: if admin() || assigned(resource.data.eventId, resource.data.vendorId, ['food_vendor_manager','pickup_staff']);
+      allow write: if false;
+    }
+    match /auditLogs/{id} { allow read: if admin(); allow write: if false; }
+    match /{collection}/{id} {
+      allow read: if collection in ['websiteContent','albums','photos','newsPosts','committeeTerms','partnerOrganizations','volunteerOpportunities','vendors']
+        && (resource.data.status == 'published' || admin() || role('content_editor'));
+      allow write: if false;
+    }
+    // Financial mutations, stock, rate limits, projections, and all unknown data
+    // can only be written by validated Cloud Functions using Admin SDK.
+    match /{document=**} { allow read, write: if false; }
+  }
+}

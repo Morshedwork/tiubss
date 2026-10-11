@@ -1,0 +1,8 @@
+node_modules/
+firebase/functions/node_modules/
+firebase/functions/lib/
+.env
+.env.*
+!.env.example
+*.zip
+.DS_Store

@@ -1,0 +1,18 @@
+THIRD-PARTY SOFTWARE NOTICE
+
+QRCode for JavaScript
+Copyright (c) 2009 Kazuhiko Arase
+Original project: http://www.d-project.com/
+License: MIT
+
+The local files in js/qr-vendor are derived from the QRCode encoder
+bundled by qrcode-terminal. The encoder was originally adapted for Node.js
+by that project. For TIU BSS, CommonJS imports and exports were converted
+to native ES modules; encoder logic is unchanged.
+
+The complete MIT license is included in js/qr-vendor/MIT-LICENSE.txt.
+The upstream qrcode-terminal license and third-party notice are preserved
+in js/qr-vendor/LICENSE.txt, including its Apache 2.0 license text.
+No remote script or external QR-code rendering service is used.
+
+The word "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
