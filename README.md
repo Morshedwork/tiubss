@@ -121,3 +121,9 @@ The homepage now starts with people, a filterable community noticeboard, the add
 Admin → Instagram reels accepts individual URLs or atomic batches of 1–100 direct links. It supports draft review, editable titles/captions/categories, publishing and removal. These are browser-local demo records, not an automatic or shared Instagram feed. To supply a curated deployment seed, provide verified direct public reel URLs and their desired categories.
 
 The gallery has separate Community photos and Artworks sections; bundled illustrations stay in Artworks even when categorized as a celebration. This update preserves existing locally saved profiles, orders, gallery items and community posts.
+
+## Illustrated community hero (V7)
+
+The homepage introduces the Bangladeshi student community at Tokyo International University with “Your Bangladesh, right here at TIU.” The original transparent ink-and-watercolour illustration centres eight fictional students sharing adda and food, with smaller rickshaw, Shaheed Minar, Tokyo Tower and folk details. It is an imagined community illustration, not a photograph of members or a documentary view of the campus. Its full built-in image-generation prompt and provenance are in `art-direction-v7.md`; the self-hosted WebP is `dist/assets/community-sketch-v7.webp`.
+
+The hero supports English/Bangla, a profile-aware join/community action, event links and people/adda/culture shortcuts. The existing interactive noticeboard is beside the member directory preview below the hero. Existing mela, art studio, profile, admin and reel sections remain available. The managed browser preview could not start due to a container process-mount permission error; visual browser verification was unavailable for this update.

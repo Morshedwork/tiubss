@@ -32,7 +32,7 @@ function showTicket(ticket,type='event'){
 }
 const ctx={store,esc,icon,toast,modal,closeModal,navigate,render,formatDate,money,showTicket};
 const extraStyles=document.createElement('style');extraStyles.textContent=[eventStyles,adminStyles,communityStyles, '.cart-summary{color:var(--green)} .hero h1{font-family:var(--serif)} .community-section .community-grid{grid-template-columns:1.1fr 2fr;gap:70px} @media(max-width:850px){.community-section .community-grid{grid-template-columns:1fr;gap:35px}}'].join('\n');document.head.append(extraStyles);
-for(const id of ['rickshaw-theme','rickshaw-inner-theme','culture-theme','community-wall-theme','rickshaw-v4-theme','mela-theme','art-studio-theme','festive-theme','gallery-v6-theme','reels-theme','community-home-theme']){const link=document.getElementById(id);if(link)document.head.append(link);}
+for(const id of ['rickshaw-theme','rickshaw-inner-theme','culture-theme','community-wall-theme','rickshaw-v4-theme','mela-theme','art-studio-theme','festive-theme','gallery-v6-theme','reels-theme','community-home-theme','community-hero-theme']){const link=document.getElementById(id);if(link)document.head.append(link);}
 
 function communitySettings(){const s=store.getState().settings||{};let instagram='https://www.instagram.com/tiu.bss/';try{const u=new URL(s.instagram||instagram);if(u.protocol==='https:')instagram=u.href;}catch{}return {title:s.title||'TIU Bangladesh Student Society',instagram,email:/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.email||'')?s.email:''};}
 
