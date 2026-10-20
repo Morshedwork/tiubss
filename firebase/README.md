@@ -1,6 +1,17 @@
-# TIU BSS — optional live Firebase backend
+# TIU BSS — Firebase backend
 
-The published visual demonstration uses browser-local sample data until its application is connected to this adapter. This folder contains deployable backend source; it is not evidence of a configured Firebase project. No real payment processor, outbound event email service, or push notifications are connected.
+The site frontend now targets Firebase project `tiu-bss` using the supplied public web configuration. Member login/logout, profile data, community activity, registrations, food orders and content operations use the live adapter, without a local-demo fallback. Authentication is enabled and Firestore is provisioned; Storage billing, App Check and backend deployment are still required; the web configuration is not an administrator credential. No payment processor, outbound event email service or push notifications are connected.
+
+Current console status on 20 October 2026:
+
+- Firebase Authentication is initialized; Email/Password and Google both show Enabled. The production site hostname is authorized, and the public configuration endpoint returns HTTP 200.
+- Firestore Standard database `(default)` was created in `asia-northeast1` (Tokyo). The prepared `firestore.rules` file was published successfully in the console. Client writes remain denied; validated Cloud Functions own writes.
+- Firebase Storage explicitly requires the project owner to upgrade from Spark to Blaze. No billing plan change was performed.
+- The `asia-northeast1` `saveProfile` function endpoint returned HTTP 404; backend functions and indexes remain to deploy.
+- No App Check public site key is configured. Callable writes intentionally remain protected; account sign-in itself does not require that key.
+- Firebase JavaScript SDK 13.0.0 was reachable. No real member accounts were created and no end-to-end account/upload test was performed.
+
+The billing requirement, undeployed functions, and missing App Check key prevent profile/community saves and picture uploads. The website reports these failures instead of showing false success.
 
 ## What is implemented
 
@@ -12,22 +23,14 @@ The published visual demonstration uses browser-local sample data until its appl
 - Unpaid confirmed reservations expire after 30 minutes or the food-ordering cutoff (whichever is earlier). A scheduled function releases stock every five minutes. Cancelled eligible orders also release stock once. Orders already being prepared or paid are not cancelled automatically.
 - Server-owned role assignment checked against current assignment records as well as ID-token claims, current event/vendor scopes, immutable audit entries, public-content CMS writes, image uploads, and a server-side per-user rate limit on profile/registration/food creation.
 
-## Set up a project
+## Activate this project
 
-1. Create a Firebase project and web app. Enable Firestore, Storage, Authentication (Google and Email/Password), and Cloud Functions. Choose a Firestore location appropriate to your users; these functions use `asia-northeast1` (Tokyo). Provision billing/services required for deployment in your own account.
-2. Add the actual site hostname to Authentication → Settings → Authorized domains.
+1. Authentication and Firestore are already initialized. The project owner must enable the Blaze billing plan at https://console.firebase.google.com/project/tiu-bss/overview, then provision Storage and Cloud Functions. The Firestore database and functions use `asia-northeast1` (Tokyo).
+2. The authorized domain `tiu-bss-community.agile-poppy-0617.chatgpt.site` is already configured in Authentication → Settings → Authorized domains. Keep `tiu-bss.firebaseapp.com` authorized. Add `localhost` only for intentional local development. Do not include a protocol or path in an authorized-domain entry.
 3. Register the web app with Firebase App Check using reCAPTCHA v3. Add the site hostname to the provider configuration. Callable functions enforce App Check. Missing/invalid tokens are rejected, so an API config alone does not make mutations work.
-4. In `dist/firebase-config.js`, provide the public web config before the module loads:
+4. The public web config is already set in `dist/firebase-config.js` before the module loads. Keep it and set the App Check public site key:
 
 ```js
-window.BSS_FIREBASE_CONFIG = {
-  apiKey: 'YOUR_WEB_API_KEY',
-  authDomain: 'YOUR_PROJECT.firebaseapp.com',
-  projectId: 'YOUR_PROJECT',
-  storageBucket: 'YOUR_EXACT_BUCKET_FROM_FIREBASE',
-  messagingSenderId: 'YOUR_SENDER_ID',
-  appId: 'YOUR_WEB_APP_ID'
-};
 window.BSS_FIREBASE_APP_CHECK_KEY = 'YOUR_RECAPTCHA_V3_SITE_KEY';
 ```
 
@@ -40,7 +43,7 @@ cd firebase/functions
 npm ci
 npm run build
 cd ..
-firebase deploy --project YOUR_PROJECT_ID --only firestore,storage,functions
+firebase deploy --project tiu-bss --only firestore,storage,functions
 ```
 
 The deploy command applies the deny-by-default rules and indexes. Storage rules use Firestore-backed role checks; enable the Cloud Storage rules service permission to read Firestore when Firebase requests it on first deployment. Wait for composite indexes to finish building before opening dependent screens. Firestore TTL on `rateLimits.expiresAt` cleans up old rate-limit counters; expiration checks do not depend on TTL punctuality.
@@ -48,18 +51,18 @@ The deploy command applies the deny-by-default rules and indexes. Storage rules 
 6. Create your administrator's account through Firebase Auth. With Application Default Credentials authorized for your project, run:
 
 ```bash
-GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID node scripts/bootstrap-admin.cjs YOUR_FIREBASE_AUTH_UID
+GOOGLE_CLOUD_PROJECT=tiu-bss node scripts/bootstrap-admin.cjs YOUR_FIREBASE_AUTH_UID
 ```
 
 Then sign out and sign in. Administrator status is a Firebase custom claim set through a trusted server; changing a browser/localStorage profile cannot grant a live role. Use `assignStaff` to grant additional scoped roles. New privileges require a refreshed token. Demotions and scope removals also check the current server-owned assignment, so an older token cannot retain a removed role. Refresh/sign out to update the visible dashboard after changing privileges.
 
-7. Connect live screens to the adapter instead of the local demonstration store. Do not upload the demonstration's sample members as real members. Verify the browser UI clearly indicates whether it is using local sample data or Firebase. Republish the frontend after config/application changes.
+7. The frontend is wired to the live adapter. Do not upload demonstration members as real people. After activating Firebase, verify login/logout, persistence after reload, profile save and upload, public opt-in approval, free registration, cash food ordering and staff access using accounts you own. Republish the frontend when adding the App Check site key. The Sites audience is managed separately from Firebase membership; its current sharing settings are preserved.
 
 ## Adapter API
 
 All data methods reject when unconfigured; none writes fallback sample data on a Firebase failure. `initFirebase()` returns `{configured,user,roles,error}`. `subscribeAuth(listener)` returns an unsubscribe function. `getAuthState()` returns a snapshot. Functions use the fixed Tokyo region.
 
-Authentication: `signInWithGoogle()`, `signInWithEmail(email,password)`, `signUpWithEmail(email,password,displayName)`, `signOut()`, `sendPasswordReset(email)`, `sendVerificationEmail()`, `refreshClaims()`.
+Authentication: `signInWithGoogle()`, `signInWithEmail(email,password)`, `signUpWithEmail(email,password,displayName)`, `signOut()`, `sendPasswordReset(email)`, `sendVerificationEmail()`, `refreshClaims()`, `reloadUser()`, `friendlyError(error)`. Signup returns the created credential with optional `warnings` for verification-email or display-name failures; those failures never misreport account creation as failed. Sessions persist in browser storage when available; restricted browsers receive a session-only warning.
 
 Profiles: `getMyProfile()`, `saveMyProfile(patch)`, `approveMembership(uid,status)`, `getPublicProfiles()`.
 
@@ -71,7 +74,11 @@ For cash collection, call `advanceFoodOrder(id,'confirmPayment',undefined,order.
 
 Content: `saveContent(collection,id,data)`, `getContent(collection)`, `uploadImage(file,{kind:'gallery'|'avatar',id})`, `getAdminOverview()`, `assignStaff(uid,roles,eventIds,vendorIds)`. `getAdminOverview()` returns the first 100 records per collection and labels this limit; it is not an unbounded aggregate accounting report. Other list helpers also cap at 100. Implement pagination/aggregate queries before using larger live datasets.
 
-Valid content collections: `websiteContent`, `albums`, `photos`, `newsPosts`, `committeeTerms`, `partnerOrganizations`, `volunteerOpportunities`, `vendors`. Saved text is plain text; render it with `textContent` or a trusted escaping template, never raw HTML.
+Valid content collections: `websiteContent`, `albums`, `photos`, `newsPosts`, `committeeTerms`, `partnerOrganizations`, `volunteerOpportunities`, `vendors`, `reels`. `getContent(collection,{includeDrafts:true})` still depends on server rules, never on frontend roles alone. `deleteContent(collection,id)` handles CMS deletion; food counters must be unpublished to preserve order references. Saved text is plain text; render it with `textContent` or a trusted escaping template, never raw HTML.
+
+Community: `getCommunityPosts()`, `createCommunityPost({body,category})`, `deleteCommunityPost(id)`, `togglePostHeart(id)`, `replyToPost(id,body)`, `moderatePost(id,status)`. Posting requires a saved non-suspended profile and verified email. Names come from the server profile, identities from Auth. Notes are capped at 600 characters, replies at 300 characters/100 per thread, and hearts at 1,000 per post; writes are rate-limited. Deletion is owner-only; moderation requires a current content-editor/admin assignment. Published notes are public, so the UI explains visibility before submission.
+
+Requests: `submitCommunityRequest(data)`, `getMyRequests()`, `getIncomingRequests()`, `updateCommunityRequest(id,status)`. Contact, partnership, volunteering, connection and mentoring requests are stored privately for the sender, the target member where applicable, and administrators. Sender IDs and email cannot be supplied or overridden by a client. These are website inbox records; no outbound email is sent. `requestId` is optional and can be retained across retries to avoid duplicates.
 
 ## Data conventions
 
@@ -85,7 +92,7 @@ Gallery files are intentionally public once uploaded into `gallery/`. Avatar obj
 
 ## Verification status and launch checks
 
-The TypeScript source is compiled locally (`npm run build` and `npm run check`) and the frontend adapter/bootstrap script pass `node --check`. A targeted source review verified transaction reads occur before writes, private-profile projection uses an allowlist, staff reads are scoped, and malformed callable payloads are rejected. It also added current-assignment role revocation checks and stale-stock update protection. Firestore/Storage rule syntax and behavior have not been executed in an emulator. Live Firebase credentials, provider configuration, deployed rules, real Auth, concurrent transactions, notifications, and payment integration have not been verified against a user project. Do not present them as connected or production-tested.
+The TypeScript source is compiled locally (`npm run build` and `npm run check`) and the frontend adapter/bootstrap script pass `node --check`. A targeted source review verified transaction reads occur before writes, private-profile projection uses an allowlist, staff reads are scoped, and malformed callable payloads are rejected. It also added current-assignment role revocation checks and stale-stock update protection. Firestore rule syntax was accepted by the console publisher; Firestore/Storage rule behavior has not been executed in an emulator. The supplied public project configuration was checked read-only as recorded above. Authorized deployment access, real account flows, rule behavior in an emulator, concurrent transactions, notifications and payment integration remain unverified. Do not present them as connected or production-tested.
 
 Before launch, run Firebase Emulator Suite/security-rule tests and a staging end-to-end test for:
 
@@ -109,3 +116,8 @@ Outstanding full-spec extensions: paid admission/payment webhooks/refunds, guest
 - https://firebase.google.com/docs/auth/admin/custom-claims
 - https://firebase.google.com/docs/app-check/cloud-functions
 - https://firebase.google.com/docs/web/learn-more#available-libraries
+
+
+## Console setup progress — 20 October 2026
+
+Firebase Authentication initialized through the owner’s console session. Email/Password and Google sign-in both show Enabled. Public app name is TIU BSS and support address is tiu.bss.admin@gmail.com. Authorized domain tiu-bss-community.agile-poppy-0617.chatgpt.site added and confirmed by the public project config endpoint (HTTP 200). Firestore Standard `(default)` in Tokyo was created and the prepared deny-by-default rules were published. Storage shows an explicit Blaze billing requirement; no plan upgrade was performed. Backend functions and App Check remain to deploy/configure. No real member accounts were created for testing.
