@@ -175,7 +175,7 @@ export function mountMotion() {
     root.dataset.motion = enabled ? 'on' : 'off';
     routeHeading?.classList.toggle('motion-route-enter', enabled && !reduced?.matches);
     for (const button of buttons) {
-      const label = enabled ? 'Pause motion' : 'Enable motion';
+      const label = enabled ? 'Pause animations' : 'Enable animations';
       const text = button.querySelector('[data-motion-label]');
       (text || button).textContent = label;
       button.setAttribute('aria-label', label);
