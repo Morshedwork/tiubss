@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check dist/js/app.js && node --check dist/js/store.js && node --check dist/js/admin.js && node --check dist/js/events.js && node --check dist/js/community.js && node --check dist/js/home-v2.js && node --check dist/js/motion.js && node --check dist/js/culture-v3.js && node --check dist/js/rickshaw-stage.js && node --check dist/js/mela.js && node --check dist/js/art-studio.js && node --check dist/js/instagram.js && node --check dist/js/reels.js && node --check dist/js/community-hero-v7.js"
+    "check": "node --check dist/js/app.js && node --check dist/js/store.js && node --check dist/js/admin.js && node --check dist/js/events.js && node --check dist/js/community.js && node --check dist/js/home-v2.js && node --check dist/js/motion.js && node --check dist/js/culture-v3.js && node --check dist/js/rickshaw-stage.js && node --check dist/js/mela.js && node --check dist/js/art-studio.js && node --check dist/js/instagram.js && node --check dist/js/reels.js && node --check dist/js/community-hero-v7.js && node --check dist/js/firebase-service.js && node --check dist/js/live-store.js && node --check dist/firebase-config.js"
   }
 }

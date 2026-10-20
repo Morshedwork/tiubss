@@ -48,9 +48,17 @@ service cloud.firestore {
       allow read: if admin() || assigned(resource.data.eventId, resource.data.vendorId, ['food_vendor_manager','pickup_staff']);
       allow write: if false;
     }
+    match /communityPosts/{id} {
+      allow read: if resource.data.status == 'published' || (signedIn() && resource.data.uid == request.auth.uid) || admin() || role('content_editor');
+      allow write: if false;
+    }
+    match /communityRequests/{id} {
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || resource.data.toUserId == request.auth.uid || admin());
+      allow write: if false;
+    }
     match /auditLogs/{id} { allow read: if admin(); allow write: if false; }
     match /{collection}/{id} {
-      allow read: if collection in ['websiteContent','albums','photos','newsPosts','committeeTerms','partnerOrganizations','volunteerOpportunities','vendors']
+      allow read: if collection in ['websiteContent','albums','photos','newsPosts','committeeTerms','partnerOrganizations','volunteerOpportunities','vendors','reels']
         && (resource.data.status == 'published' || admin() || role('content_editor'));
       allow write: if false;
     }

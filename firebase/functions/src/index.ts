@@ -30,6 +30,13 @@ function str(value: unknown, name: string, max = 200, required = true): string {
   if (typeof value !== 'string' || value.trim().length > max || (required && !value.trim())) return fail('invalid-argument', `Invalid ${name}.`);
   return value.trim();
 }
+function commaText(value: unknown, name: string, max = 1000): string {
+  if (Array.isArray(value)) {
+    if (value.length > 30) fail('invalid-argument', `Too many ${name} entries.`);
+    return str(value.map(item => str(item, name, 100)).join(', '), name, max, false);
+  }
+  return str(value || '', name, max, false);
+}
 function id(value: unknown, name = 'identifier'): string {
   const result = str(value, name, 128);
   if (!/^[a-zA-Z0-9_-]+$/.test(result)) return fail('invalid-argument', `Invalid ${name}.`);
@@ -170,8 +177,11 @@ export const saveEvent = callable(async req => {
     startsAt: date(data.startsAt, 'start date'), endsAt: date(data.endsAt, 'end date'), registrationClosesAt: date(data.registrationClosesAt || data.startsAt, 'registration close'),
     capacity: integer(data.capacity, 'capacity', 1, 10000), ticketPriceJPY: integer(data.ticketPriceJPY || 0, 'ticket price', 0, 0),
     foodEnabled: data.foodEnabled === true, foodClosesAt: date(data.foodClosesAt || data.endsAt, 'food close'), allowGuestFood: data.allowGuestFood === true,
+    photoURL: str(data.photoURL || '', 'event photo', 2000, false),
+    pickupSlots: Array.isArray(data.pickupSlots) && data.pickupSlots.length <= 24 ? data.pickupSlots.map((slot:unknown) => str(slot, 'pickup slot', 80)) : [],
     status: ['draft', 'published', 'cancelled'].includes(data.status) ? data.status : 'draft', timezone: 'Asia/Tokyo', updatedAt: now()
   };
+  if (event.photoURL && !/^https:\/\//.test(event.photoURL)) fail('invalid-argument', 'Event photo must be HTTPS.');
   if (event.endsAt.toMillis() <= event.startsAt.toMillis() || event.registrationClosesAt.toMillis() > event.endsAt.toMillis()) fail('invalid-argument', 'Invalid event date range.');
   await db.runTransaction(async tx => {
     const ref = db.doc(`events/${eventId}`); const old = await tx.get(ref);
@@ -247,7 +257,7 @@ export const saveMenuItem = callable(async req => {
     description: str(data.description || '', 'description', 2000, false), category: str(data.category || 'Food', 'category', 60),
     priceJPY: integer(data.priceJPY, 'price', 0, 100000), stock: integer(data.stock, 'stock', 0, 100000),
     perPersonLimit: integer(data.perPersonLimit || 10, 'per-person limit', 1, 100), active: data.active !== false,
-    allergens: str(data.allergens || '', 'allergens', 500, false), ingredients: str(data.ingredients || '', 'ingredients', 1000, false),
+    allergens: commaText(data.allergens, 'allergens', 500), ingredients: commaText(data.ingredients, 'ingredients', 1000),
     photoURL: str(data.photoURL || '', 'photo URL', 2000, false), pickupLocation: str(data.pickupLocation || 'Main food counter', 'pickup location', 200), updatedAt: now()
   };
   if (item.photoURL && !/^https:\/\//.test(item.photoURL)) fail('invalid-argument', 'Photo URL must be HTTPS.');
@@ -374,15 +384,15 @@ export const expireFoodReservations = onSchedule({ schedule: 'every 5 minutes', 
 export const saveContent = callable(async req => {
   await authorize(req, ['content_editor']);
   const collection = str(req.data.collection, 'collection');
-  if (!['websiteContent', 'albums', 'photos', 'newsPosts', 'committeeTerms', 'partnerOrganizations', 'volunteerOpportunities', 'vendors'].includes(collection)) fail('invalid-argument', 'Unsupported content collection.');
+  if (!['websiteContent', 'albums', 'photos', 'newsPosts', 'committeeTerms', 'partnerOrganizations', 'volunteerOpportunities', 'vendors', 'reels'].includes(collection)) fail('invalid-argument', 'Unsupported content collection.');
   if (collection === 'vendors' && !(await isAdmin(req))) fail('permission-denied', 'Only an administrator can create food counters.');
   const contentId = id(req.data.id); const input = req.data.data;
   if (!input || typeof input !== 'object' || Array.isArray(input) || JSON.stringify(input).length > 30000) fail('invalid-argument', 'Invalid content.');
   const content: Data = {};
-  for (const field of ['title', 'titleBn', 'name', 'body', 'bodyBn', 'description', 'photoURL', 'alt', 'credit', 'role', 'term', 'eventId', 'vendorId', 'albumId', 'url', 'category']) {
+  for (const field of ['title', 'titleBn', 'name', 'body', 'bodyBn', 'description', 'photoURL', 'alt', 'credit', 'role', 'term', 'eventId', 'vendorId', 'albumId', 'url', 'category', 'caption', 'excerpt', 'date', 'email', 'instagram', 'announcement', 'location', 'memberId', 'bio', 'website', 'logo']) {
     if (input[field] !== undefined) content[field] = str(input[field], field, field.startsWith('body') ? 15000 : 2000, false);
   }
-  for (const field of ['url', 'photoURL']) if (content[field] && !/^https:\/\//.test(content[field])) fail('invalid-argument', `${field} must be HTTPS.`);
+  for (const field of ['url', 'photoURL', 'instagram', 'website', 'logo']) if (content[field] && !/^https:\/\//.test(content[field])) fail('invalid-argument', `${field} must be HTTPS.`);
   content.status = input.status === 'published' ? 'published' : 'draft';
   content.updatedAt = now();
   await db.runTransaction(async tx => { tx.set(db.doc(`${collection}/${contentId}`), content, { merge: true }); audit(tx, uid(req), 'content.save', `${collection}/${contentId}`); });
@@ -407,4 +417,117 @@ export const assignStaff = callable(async req => {
   await getAuth().setCustomUserClaims(target, { ...user.customClaims, roles: req.data.roles });
   await db.collection('auditLogs').add({ actor: uid(req), action: 'staff.assign', target, roles: req.data.roles, at: now() });
   return { ok: true, refreshRequired: true };
+});
+
+
+const CONTENT_COLLECTIONS = ['websiteContent', 'albums', 'photos', 'newsPosts', 'committeeTerms', 'partnerOrganizations', 'volunteerOpportunities', 'vendors', 'reels'];
+export const deleteContent = callable(async req => {
+  await authorize(req, ['content_editor']);
+  const collection = str(req.data.collection, 'collection'), contentId = id(req.data.id);
+  if (!CONTENT_COLLECTIONS.includes(collection)) fail('invalid-argument', 'Unsupported content collection.');
+  if (collection === 'vendors') fail('failed-precondition', 'Food counters cannot be deleted while orders may reference them. Unpublish the counter instead.');
+  await db.runTransaction(async tx => { tx.delete(db.doc(`${collection}/${contentId}`)); audit(tx, uid(req), 'content.delete', `${collection}/${contentId}`); });
+  return { ok: true };
+});
+
+async function communityAuthor(req: Request): Promise<{userId:string; name:string}> {
+  const userId = uid(req), profile = (await db.doc(`users/${userId}`).get()).data();
+  if (!profile || !profile.name) fail('failed-precondition', 'Complete your member profile before posting.');
+  if (profile!.membershipStatus === 'suspended') fail('permission-denied', 'Your membership is suspended.');
+  if (!req.auth!.token.email_verified) fail('failed-precondition', 'Verify your email address before posting.');
+  return { userId, name: str(profile!.name, 'name', 500) };
+}
+export const createCommunityPost = callable(async req => {
+  const author = await communityAuthor(req); await rateLimit(author.userId, 'community.post', 5);
+  const body = str(req.data.body, 'note', 600), category = str(req.data.category, 'category', 30);
+  if (!['introduction','question','moment'].includes(category)) fail('invalid-argument', 'Choose a community note category.');
+  const ref = db.collection('communityPosts').doc();
+  const post = { ...author, uid: author.userId, body, category, status: 'published', hearts: [], replies: [], createdAt: now(), updatedAt: now() };
+  await ref.create(post);
+  return { id: ref.id };
+});
+export const deleteCommunityPost = callable(async req => {
+  const userId = uid(req), postId = id(req.data.id);
+  await db.runTransaction(async tx => {
+    const ref = db.doc(`communityPosts/${postId}`), post = (await tx.get(ref)).data();
+    if (!post) fail('not-found', 'This note is no longer available.');
+    if (post!.uid !== userId) fail('permission-denied', 'You can only delete your own notes.');
+    tx.delete(ref);
+  });
+  return { ok: true };
+});
+export const togglePostHeart = callable(async req => {
+  const author = await communityAuthor(req); await rateLimit(author.userId, 'community.heart', 30);
+  const postId = id(req.data.id);
+  return db.runTransaction(async tx => {
+    const ref = db.doc(`communityPosts/${postId}`), post = (await tx.get(ref)).data();
+    if (!post || post.status !== 'published') fail('not-found', 'This note is no longer available.');
+    const hearts: string[] = Array.isArray(post!.hearts) ? post!.hearts : [];
+    const loved = hearts.includes(author.userId);
+    if (!loved && hearts.length >= 1000) fail('resource-exhausted', 'This note has reached its appreciation limit.');
+    tx.update(ref, { hearts: loved ? hearts.filter(item => item !== author.userId) : [...hearts, author.userId], updatedAt: now() });
+    return { ok: true, loved: !loved };
+  });
+});
+export const replyToPost = callable(async req => {
+  const author = await communityAuthor(req); await rateLimit(author.userId, 'community.reply', 10);
+  const postId = id(req.data.id), body = str(req.data.body, 'reply', 300), replyId = db.collection('communityPosts').doc().id;
+  await db.runTransaction(async tx => {
+    const ref = db.doc(`communityPosts/${postId}`), post = (await tx.get(ref)).data();
+    if (!post || post.status !== 'published') fail('not-found', 'This note is no longer available.');
+    const replies: Data[] = Array.isArray(post!.replies) ? post!.replies : [];
+    if (replies.length >= 100) fail('resource-exhausted', 'This conversation has reached its reply limit. Start a new note.');
+    // Firestore does not permit serverTimestamp sentinels inside an array.
+    tx.update(ref, { replies: [...replies, { id: replyId, ...author, body, createdAt: Timestamp.now() }], updatedAt: now() });
+  });
+  return { ok: true, id: replyId };
+});
+export const moderatePost = callable(async req => {
+  await authorize(req, ['content_editor']);
+  const postId = id(req.data.id), status = str(req.data.status, 'status', 30);
+  if (!['published','hidden'].includes(status)) fail('invalid-argument', 'Invalid moderation status.');
+  await db.runTransaction(async tx => {
+    const ref = db.doc(`communityPosts/${postId}`), post = await tx.get(ref);
+    if (!post.exists) fail('not-found', 'This note is no longer available.');
+    tx.update(ref, { status, updatedAt: now() }); audit(tx, uid(req), 'community.moderate', postId, { status });
+  });
+  return { ok: true };
+});
+export const submitCommunityRequest = callable(async req => {
+  const userId = uid(req); await rateLimit(userId, 'community.request', 5);
+  const type = str(req.data.type || req.data.kind, 'request type', 30);
+  if (!['connection','mentorship','contact','volunteer','partners'].includes(type)) fail('invalid-argument', 'Invalid request type.');
+  const profile = (await db.doc(`users/${userId}`).get()).data();
+  if (profile?.membershipStatus === 'suspended') fail('permission-denied', 'Your membership is suspended.');
+  const toUserId = req.data.toUserId ? id(req.data.toUserId, 'recipient') : '';
+  let toName = '';
+  if (toUserId) {
+    if (!['connection','mentorship'].includes(type) || toUserId === userId) fail('invalid-argument', 'Choose another community member.');
+    const target = (await db.doc(`publicProfiles/${toUserId}`).get()).data();
+    if (!target) fail('not-found', 'This member is no longer available in the directory.');
+    toName = str(target!.name || 'Community member', 'recipient name', 500);
+  }
+  const requestId = req.data.requestId ? id(req.data.requestId, 'request') : db.collection('communityRequests').doc().id;
+  const ref = db.doc(`communityRequests/${hash(`${userId}:${requestId}`)}`);
+  const data = {
+    uid: userId, userId, fromUserId: userId, toUserId, toName, type,
+    name: str(profile?.name || req.data.name || req.auth!.token.name || 'Member', 'name', 500),
+    email: String(req.auth!.token.email || ''), // Never trust an arbitrary sender address.
+    subject: str(req.data.subject || req.data.interest || type, 'subject', 300),
+    interest: str(req.data.interest || '', 'interest', 500, false),
+    message: str(req.data.message || '', 'message', 3000),
+    status: 'submitted', createdAt: now(), updatedAt: now()
+  };
+  await db.runTransaction(async tx => { const old = await tx.get(ref); if (!old.exists) tx.create(ref, data); });
+  return { id: ref.id, status: 'submitted' };
+});
+export const updateCommunityRequest = callable(async req => {
+  await authorize(req, []);
+  const requestId = id(req.data.id), status = str(req.data.status, 'status', 30);
+  if (!['submitted','read','approved','rejected','closed'].includes(status)) fail('invalid-argument', 'Invalid request status.');
+  await db.runTransaction(async tx => {
+    const ref = db.doc(`communityRequests/${requestId}`); if (!(await tx.get(ref)).exists) fail('not-found', 'Request not found.');
+    tx.update(ref, { status, updatedAt: now() }); audit(tx, uid(req), 'community.request.status', requestId, { status });
+  });
+  return { ok: true };
 });

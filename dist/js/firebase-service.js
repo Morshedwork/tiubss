@@ -1,7 +1,8 @@
-/** Optional live Firebase adapter. It never substitutes demo data for a failed live operation. */
+/** Live Firebase adapter. Failed operations never fall back to browser-local demo data. */
 const SDK = 'https://www.gstatic.com/firebasejs/13.0.0/';
 let sdk = null, app = null, auth = null, db = null, functions = null, storage = null, initialization = null;
-let state = { configured: false, user: null, roles: [], error: null };
+let state = { configured: false, user: null, roles: [], error: null, loading: false, warning: null };
+let authRevision = 0;
 const listeners = new Set();
 const emit = () => listeners.forEach(listener => { try { listener(getAuthState()); } catch (error) { console.error(error); } });
 export const getAuthState = () => ({ ...state, roles: [...state.roles] });
@@ -11,6 +12,7 @@ export async function initFirebase() {
   if (initialization) return initialization;
   const config = globalThis.BSS_FIREBASE_CONFIG;
   if (!config?.apiKey || !config?.projectId || !config?.appId || !config?.authDomain) return getAuthState();
+  state.loading = true; emit();
   initialization = (async () => {
     try {
       const [core, authentication, firestore, callable, files] = await Promise.all([
@@ -22,7 +24,8 @@ export async function initFirebase() {
         const appCheck = await import(SDK + 'firebase-app-check.js');
         appCheck.initializeAppCheck(app, { provider: new appCheck.ReCaptchaV3Provider(globalThis.BSS_FIREBASE_APP_CHECK_KEY), isTokenAutoRefreshEnabled: true });
       }
-      auth = authentication.getAuth(app); db = firestore.getFirestore(app);
+      auth = authentication.getAuth(app);
+      db = firestore.getFirestore(app);
       functions = callable.getFunctions(app, 'asia-northeast1'); storage = files.getStorage(app);
       const emulatorHost = globalThis.BSS_FIREBASE_EMULATOR_HOST;
       if (emulatorHost && ['localhost', '127.0.0.1'].includes(location.hostname)) {
@@ -31,22 +34,32 @@ export async function initFirebase() {
         callable.connectFunctionsEmulator(functions, emulatorHost, 5001);
         files.connectStorageEmulator(storage, emulatorHost, 9199);
       }
+      try { await authentication.setPersistence(auth, authentication.browserLocalPersistence); }
+      catch { await authentication.setPersistence(auth, authentication.inMemoryPersistence); state.warning = 'Your browser blocks persistent storage. This sign-in lasts only while this page is open.'; }
       state.configured = true;
       await new Promise((resolve, reject) => {
         let first = true;
         authentication.onIdTokenChanged(auth, async user => {
           try {
+            const revision = ++authRevision;
             const claims = user ? (await user.getIdTokenResult()).claims : {};
-            state = { configured: true, user, roles: Array.isArray(claims.roles) ? claims.roles : [], error: null };
+            if (revision !== authRevision || auth.currentUser?.uid !== user?.uid) return;
+            state = { ...state, configured: true, user, roles: Array.isArray(claims.roles) ? claims.roles : [], error: null, loading: false };
             emit(); if (first) { first = false; resolve(); }
           } catch (cause) {
-            state = { configured: true, user: null, roles: [], error: cause.message }; emit();
+            state = { ...state, configured: true, user: null, roles: [], error: friendlyError(cause), loading: false }; emit();
             if (first) { first = false; reject(cause); }
           }
         }, reject);
       });
+      // Analytics is optional: unsupported browsers and blockers must not break accounts.
+      if (globalThis.BSS_ENABLE_ANALYTICS === true && config.measurementId && !emulatorHost) {
+        import(SDK + 'firebase-analytics.js').then(async analytics => {
+          if (await analytics.isSupported()) analytics.getAnalytics(app);
+        }).catch(() => {});
+      }
     } catch (cause) {
-      state = { configured: false, user: null, roles: [], error: cause.message || 'Firebase could not initialize.' }; emit();
+      state = { ...state, configured: false, user: null, roles: [], error: friendlyError(cause), loading: false }; emit();
     }
     return getAuthState();
   })();
@@ -58,10 +71,15 @@ async function ready(requireUser = false) {
   if (requireUser && !auth.currentUser) throw error('auth/required', 'Please sign in to continue.');
   if (auth.currentUser && state.user?.uid !== auth.currentUser.uid) {
     const claims = (await auth.currentUser.getIdTokenResult()).claims;
-    state = { configured: true, user: auth.currentUser, roles: Array.isArray(claims.roles) ? claims.roles : [], error: null };
+    state = { ...state, configured: true, user: auth.currentUser, roles: Array.isArray(claims.roles) ? claims.roles : [], error: null };
   }
 }
-async function call(name, data) { await ready(true); const result = await sdk.callable.httpsCallable(functions, name)(data); return normalize(result.data); }
+async function call(name, data) {
+  await ready(true);
+  if (!globalThis.BSS_FIREBASE_APP_CHECK_KEY && !globalThis.BSS_FIREBASE_EMULATOR_HOST) throw error('firebase/app-check-required', 'Your account is signed in. Community data is awaiting Firebase App Check setup; please contact the site administrator.');
+  try { const result = await sdk.callable.httpsCallable(functions, name)(data); return normalize(result.data); }
+  catch (cause) { throw error(cause.code || 'firebase/request-failed', friendlyError(cause)); }
+}
 function normalize(value) {
   if (value == null || typeof value !== 'object') return value;
   if (typeof value.toDate === 'function') return value.toDate().toISOString();
@@ -74,19 +92,68 @@ async function list(collection, constraints = []) {
   const snapshots = await f.getDocs(f.query(f.collection(db, collection), ...constraints, f.limit(100)));
   return snapshots.docs.map(doc => ({ id: doc.id, ...normalize(doc.data()) }));
 }
-export async function signInWithGoogle() { await ready(); return sdk.authentication.signInWithPopup(auth, new sdk.authentication.GoogleAuthProvider()); }
-export async function signInWithEmail(email, password) { await ready(); return sdk.authentication.signInWithEmailAndPassword(auth, email, password); }
+export async function signInWithGoogle() {
+  await ready(); const provider = new sdk.authentication.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
+  return sdk.authentication.signInWithPopup(auth, provider);
+}
+export async function signInWithEmail(email, password) { await ready(); return sdk.authentication.signInWithEmailAndPassword(auth, String(email).trim(), password); }
 export async function signUpWithEmail(email, password, displayName) {
-  await ready(); const credential = await sdk.authentication.createUserWithEmailAndPassword(auth, email, password);
-  if (displayName) await sdk.authentication.updateProfile(credential.user, { displayName });
-  await sdk.authentication.sendEmailVerification(credential.user);
-  // The caller saves its profile after Auth has settled. Account creation is never rolled back on an email error.
+  await ready(); const credential = await sdk.authentication.createUserWithEmailAndPassword(auth, String(email).trim(), password);
+  credential.warnings = [];
+  if (displayName) {
+    try { await sdk.authentication.updateProfile(credential.user, { displayName: String(displayName).trim().slice(0,80) }); }
+    catch { credential.warnings.push('Your account was created, but your display name could not be saved yet.'); }
+  }
+  try { await sdk.authentication.sendEmailVerification(credential.user); }
+  catch { credential.warnings.push('Your account was created. The verification email could not be sent; use Resend verification from your account.'); }
+  try { await refreshClaims(); } catch { credential.warnings.push('Your account was created. Reload the page if your account details have not refreshed yet.'); }
   return credential;
 }
-export async function signOut() { await ready(); return sdk.authentication.signOut(auth); }
-export async function sendPasswordReset(email) { await ready(); return sdk.authentication.sendPasswordResetEmail(auth, email); }
-export async function sendVerificationEmail() { await ready(true); return sdk.authentication.sendEmailVerification(auth.currentUser); }
-export async function refreshClaims() { await ready(true); await auth.currentUser.getIdToken(true); return getAuthState(); }
+export async function signOut() {
+  await ready(); await sdk.authentication.signOut(auth);
+  ++authRevision; state = { ...state, user: null, roles: [], error: null }; emit();
+}
+export async function sendPasswordReset(email) { await ready(); return sdk.authentication.sendPasswordResetEmail(auth, String(email).trim()); }
+export async function sendVerificationEmail() { await ready(true); if (!auth.currentUser.emailVerified) return sdk.authentication.sendEmailVerification(auth.currentUser); }
+export async function refreshClaims() {
+  await ready(true); const user = auth.currentUser, revision = ++authRevision;
+  const claims = (await user.getIdTokenResult(true)).claims;
+  if (auth.currentUser?.uid === user.uid && revision === authRevision) { state = { ...state, user, roles: Array.isArray(claims.roles) ? claims.roles : [] }; emit(); }
+  return getAuthState();
+}
+export async function reloadUser() { await ready(true); await sdk.authentication.reload(auth.currentUser); return refreshClaims(); }
+export function friendlyError(cause) {
+  const messages = {
+    'auth/invalid-email': 'Enter a valid email address.',
+    'auth/invalid-credential': 'The email or password is incorrect. Please try again.',
+    'auth/wrong-password': 'The email or password is incorrect. Please try again.',
+    'auth/user-not-found': 'The email or password is incorrect. Please try again.',
+    'auth/email-already-in-use': 'An account already uses this email. Sign in or reset your password.',
+    'auth/weak-password': 'Choose a stronger password with at least 6 characters.',
+    'auth/password-does-not-meet-requirements': 'This password does not meet the account security requirements. Try a longer password with upper and lowercase letters, a number, and a symbol.',
+    'auth/too-many-requests': 'Too many attempts. Please wait a few minutes and try again.',
+    'auth/network-request-failed': 'Could not connect. Check your internet connection and try again.',
+    'auth/operation-not-allowed': 'This sign-in method is awaiting activation. Please contact the site administrator.',
+    'auth/configuration-not-found': 'Account access is awaiting Firebase Authentication setup. Please contact the site administrator.',
+    'auth/unauthorized-domain': 'Sign-in has not been enabled for this website address. Please contact the site administrator.',
+    'auth/popup-blocked': 'Your browser blocked the Google sign-in window. Allow popups for this site and try again, or use email sign-in.',
+    'auth/popup-closed-by-user': 'Google sign-in was closed before completing. Please try again.',
+    'auth/cancelled-popup-request': 'A sign-in window is already open. Complete it or try again.',
+    'auth/account-exists-with-different-credential': 'This email uses a different sign-in method. Sign in with the method you used when joining.',
+    'auth/user-disabled': 'This account is disabled. Please contact the site administrator.',
+    'auth/requires-recent-login': 'Please sign out and sign in again before making this change.',
+    'auth/invalid-api-key': 'Account access is not configured correctly. Please contact the site administrator.',
+    'permission-denied': 'You do not have access to this data, or the community database is still being configured.',
+    'unavailable': 'The community service is temporarily unavailable. Please try again shortly.',
+    'functions/unauthenticated': 'Please sign in again. If this continues, the administrator needs to complete App Check setup.',
+    'functions/not-found': 'This community service is not available yet. Please contact the site administrator.',
+    'functions/internal': 'The community service could not complete this request. Please try again later.',
+    'functions/unavailable': 'The community service is unavailable. Please try again shortly.',
+    'functions/deadline-exceeded': 'The request took too long. Check your connection and retry.',
+    'storage/unauthorized': 'You do not have permission to upload here. Please contact the site administrator.'
+  };
+  return messages[cause?.code] || (cause?.message && !String(cause.message).startsWith('Firebase:') ? cause.message : 'Unable to complete this request. Please try again.');
+}
 export async function getMyProfile() {
   await ready(true); const f = sdk.firestore; const profile = await f.getDoc(f.doc(db, 'users', state.user.uid));
   return profile.exists() ? { id: profile.id, ...normalize(profile.data()) } : null;
@@ -111,11 +178,24 @@ export async function getEventRegistrations(eventId) { await ready(true); const 
 export async function getAdminOverview() {
   await ready(true);
   if (!state.roles.some(role => ['super_admin', 'admin'].includes(role))) throw error('permission-denied', 'Administrator access is required.');
-  const [members, events, orders, registrations] = await Promise.all([list('users'), list('events'), list('foodOrders'), list('registrations')]);
-  return { members, events, orders, registrations, limitedTo: 100 };
+  const names = { members:'users', events:'events', orders:'foodOrders', registrations:'registrations', menu:'menuItems', vendors:'vendors', gallery:'photos', reels:'reels', news:'newsPosts', committee:'committeeTerms', partners:'partnerOrganizations', requests:'communityRequests', posts:'communityPosts', audits:'auditLogs', settings:'websiteContent' };
+  const entries = await Promise.all(Object.entries(names).map(async ([key, collection]) => [key, await list(collection)]));
+  return { ...Object.fromEntries(entries), limitedTo: 100 };
 }
 export const saveContent = (collection, id, data) => call('saveContent', { collection, id, data });
-export async function getContent(collection) { await ready(); return list(collection, [sdk.firestore.where('status', '==', 'published')]); }
+export async function getContent(collection, {includeDrafts = false} = {}) { await ready(); return list(collection, includeDrafts ? [] : [sdk.firestore.where('status', '==', 'published')]); }
+export const deleteContent = (collection, id) => call('deleteContent', { collection, id });
+export async function getStaffAssignment() { await ready(true); const doc = await sdk.firestore.getDoc(sdk.firestore.doc(db, 'staffAssignments', auth.currentUser.uid)); return doc.exists() ? normalize(doc.data()) : { roles: [], eventIds: [], vendorIds: [] }; }
+export async function getCommunityPosts() { await ready(); return list('communityPosts', [sdk.firestore.where('status', '==', 'published'), sdk.firestore.orderBy('createdAt', 'desc')]); }
+export const createCommunityPost = data => call('createCommunityPost', data);
+export const deleteCommunityPost = id => call('deleteCommunityPost', { id });
+export const togglePostHeart = id => call('togglePostHeart', { id });
+export const replyToPost = (id, body) => call('replyToPost', { id, body });
+export const moderatePost = (id, status) => call('moderatePost', { id, status });
+export const submitCommunityRequest = data => call('submitCommunityRequest', data);
+export const updateCommunityRequest = (id, status) => call('updateCommunityRequest', {id,status});
+export async function getIncomingRequests() { await ready(true); return list('communityRequests', [sdk.firestore.where('toUserId', '==', auth.currentUser.uid), sdk.firestore.orderBy('createdAt', 'desc')]); }
+export async function getMyRequests() { await ready(true); return list('communityRequests', [sdk.firestore.where('uid', '==', auth.currentUser.uid), sdk.firestore.orderBy('createdAt', 'desc')]); }
 export const assignStaff = (uid, roles, eventIds = [], vendorIds = []) => call('assignStaff', { uid, roles, eventIds, vendorIds });
 export async function uploadImage(file, { kind = 'gallery', id = 'general' } = {}) {
   await ready(true);
