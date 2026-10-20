@@ -284,37 +284,69 @@ export const PANEL_POSTS = [
         "src": "assets/panels/DdsjhhWkaBz-2.webp",
         "width": 1080,
         "height": 1350,
-        "alt": "TIU BSS 2026–2027 Advisory Board — individual introduction, picture 2 of 7, published by @tiu.bss."
+        "alt": "Choudhury Riz Rahman, TIU BSS advisor, Digital Business & Innovation — original 2026–2027 introduction poster published by @tiu.bss."
       },
       {
         "src": "assets/panels/DdsjhhWkaBz-3.webp",
         "width": 1080,
         "height": 1350,
-        "alt": "TIU BSS 2026–2027 Advisory Board — individual introduction, picture 3 of 7, published by @tiu.bss."
+        "alt": "Al Din Mashrif, TIU BSS advisor, Business Economics — original 2026–2027 introduction poster published by @tiu.bss."
       },
       {
         "src": "assets/panels/DdsjhhWkaBz-4.webp",
         "width": 1080,
         "height": 1350,
-        "alt": "TIU BSS 2026–2027 Advisory Board — individual introduction, picture 4 of 7, published by @tiu.bss."
+        "alt": "Morshed Mir Farhan, TIU BSS advisor, Digital Business & Innovation — original 2026–2027 introduction poster published by @tiu.bss."
       },
       {
         "src": "assets/panels/DdsjhhWkaBz-5.webp",
         "width": 1080,
         "height": 1350,
-        "alt": "TIU BSS 2026–2027 Advisory Board — individual introduction, picture 5 of 7, published by @tiu.bss."
+        "alt": "Aarik Ahmed, TIU BSS advisor, Digital Business & Innovation — original 2026–2027 introduction poster published by @tiu.bss."
       },
       {
         "src": "assets/panels/DdsjhhWkaBz-6.webp",
         "width": 1080,
         "height": 1350,
-        "alt": "TIU BSS 2026–2027 Advisory Board — individual introduction, picture 6 of 7, published by @tiu.bss."
+        "alt": "Prionty Adnin, TIU BSS advisor, Digital Business & Innovation — original 2026–2027 introduction poster published by @tiu.bss."
       },
       {
         "src": "assets/panels/DdsjhhWkaBz-7.webp",
         "width": 1080,
         "height": 1350,
-        "alt": "TIU BSS 2026–2027 Advisory Board — individual introduction, picture 7 of 7, published by @tiu.bss."
+        "alt": "Mostafiz Ayasha, TIU BSS advisor, International Relations — original 2026–2027 introduction poster published by @tiu.bss."
+      }
+    ],
+    "advisors": [
+      {
+        "name": "Choudhury Riz Rahman",
+        "major": "Digital Business & Innovation",
+        "imageIndex": 1
+      },
+      {
+        "name": "Al Din Mashrif",
+        "major": "Business Economics",
+        "imageIndex": 2
+      },
+      {
+        "name": "Morshed Mir Farhan",
+        "major": "Digital Business & Innovation",
+        "imageIndex": 3
+      },
+      {
+        "name": "Aarik Ahmed",
+        "major": "Digital Business & Innovation",
+        "imageIndex": 4
+      },
+      {
+        "name": "Prionty Adnin",
+        "major": "Digital Business & Innovation",
+        "imageIndex": 5
+      },
+      {
+        "name": "Mostafiz Ayasha",
+        "major": "International Relations",
+        "imageIndex": 6
       }
     ]
   }
