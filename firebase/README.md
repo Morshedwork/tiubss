@@ -88,6 +88,10 @@ Menu fields: `eventId`, `vendorId`, `name`, `nameBn`, `description`, `category`,
 
 Profile fields: `name`, `nameBn`, `bio`, `photoURL`, `city`, `country`, `university`, `degree`, `major`, `graduationYear`, `company`, `jobTitle`, `industry`, `skills` (array), `linkedin`, `website`, `mentor`, `membershipType`, `directoryOptIn`, `publicFields`, `email`, `phone`, `education`, `employment`. Security roles and membership approval are never accepted from a profile edit. Default public fields are name and membership type; users explicitly choose any additional allowed fields.
 
+Onboarding additions in source: `semester` (integer 1–13, with 13 displayed as 13+), `instagram`, and `facebook`. A completed profile requires a full name, account email, private contact phone with 7–15 digits, and a short bio of 10–500 trimmed characters. Current students also require university, field of study, and semester; alumni require university and graduation year. Nonstudent semester values are cleared. Social links are optional, validated HTTPS URLs without embedded credentials. Semester and each social link can appear publicly only through explicit field opt-in; email and phone remain outside the public allowlist. The server derives `onboardingComplete` and uses the authenticated account email. A legacy member may withdraw consent using the minimal `{directoryOptIn:false}` patch (optional `publicFields` is accepted), even before completing newly required details. Other saves validate the merged profile. These backend changes still require deployment; publishing the website alone does not activate them.
+
+Run focused onboarding validation checks with `npm --prefix functions run build` followed by `node --test functions/tests/profile-validation.test.cjs` from this directory.
+
 Gallery files are intentionally public once uploaded into `gallery/`. Avatar objects allow owner/editor storage reads, but a Firebase download URL is a bearer URL; publishing an avatar URL in an opted-in public profile deliberately makes that image shareable. Do not upload sensitive documents through this helper. Private albums need a separate protected path and signed/authenticated retrieval implementation.
 
 ## Verification status and launch checks
@@ -121,3 +125,8 @@ Outstanding full-spec extensions: paid admission/payment webhooks/refunds, guest
 ## Console setup progress — 20 October 2026
 
 Firebase Authentication initialized through the owner’s console session. Email/Password and Google sign-in both show Enabled. Public app name is TIU BSS and support address is tiu.bss.admin@gmail.com. Authorized domain tiu-bss-community.agile-poppy-0617.chatgpt.site added and confirmed by the public project config endpoint (HTTP 200). Firestore Standard `(default)` in Tokyo was created and the prepared deny-by-default rules were published. Storage shows an explicit Blaze billing requirement; no plan upgrade was performed. Backend functions and App Check remain to deploy/configure. No real member accounts were created for testing.
+
+
+## Member query indexes — 20 October 2026
+
+Created the six Collection-scope indexes for ordinary portal startup in the Firebase console: events (`status` ASC, `startsAt` ASC), communityPosts (`status` ASC, `createdAt` DESC), registrations (`uid` ASC, `createdAt` DESC), foodOrders (`uid` ASC, `createdAt` DESC), and communityRequests (`uid` ASC or `toUserId` ASC, then `createdAt` DESC). Their definitions already exist in `firestore.indexes.json`. The console begins building each index on creation; wait for Enabled before retrying affected queries. Admin/staff-specific indexes still require deployment from the complete file. This does not activate backend writes or Storage.

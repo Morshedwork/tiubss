@@ -4,6 +4,7 @@ import { getFirestore, FieldValue, Timestamp, Transaction } from 'firebase-admin
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { validContactPhone, safeProfileURL, onboardingMissing, isDirectoryOptOut } from './profile-validation';
 
 initializeApp();
 const db = getFirestore();
@@ -16,7 +17,7 @@ function callable(handler: (req: Request) => Promise<unknown>) {
     return handler(req);
   });
 }
-const PUBLIC_FIELDS = ['name', 'nameBn', 'bio', 'photoURL', 'city', 'country', 'university', 'degree', 'major', 'graduationYear', 'company', 'jobTitle', 'industry', 'skills', 'linkedin', 'website', 'mentor', 'membershipType'];
+const PUBLIC_FIELDS = ['name', 'nameBn', 'bio', 'photoURL', 'city', 'country', 'university', 'degree', 'major', 'semester', 'graduationYear', 'company', 'jobTitle', 'industry', 'skills', 'linkedin', 'instagram', 'facebook', 'website', 'mentor', 'membershipType'];
 const ROLES = ['member', 'super_admin', 'admin', 'event_manager', 'checkin_staff', 'food_vendor_manager', 'kitchen_staff', 'pickup_staff', 'content_editor'];
 const now = () => FieldValue.serverTimestamp();
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -94,7 +95,7 @@ async function rateLimit(userId: string, operation: string, max: number): Promis
   });
 }
 function profileProjection(profile: Data): Data | null {
-  if (!profile.directoryOptIn || profile.membershipStatus !== 'approved') return null;
+  if (!profile.directoryOptIn || profile.membershipStatus !== 'approved' || onboardingMissing(profile).length) return null;
   const permitted = Array.isArray(profile.publicFields) ? profile.publicFields : ['name', 'membershipType'];
   const result: Data = { uid: profile.uid, updatedAt: now() };
   for (const field of PUBLIC_FIELDS) if (permitted.includes(field) && profile[field] !== undefined) result[field] = profile[field];
@@ -109,10 +110,15 @@ function cleanProfile(data: Data): Data {
       if (!Array.isArray(data.skills) || data.skills.length > 20) fail('invalid-argument', 'Use up to 20 skills.');
       output.skills = data.skills.map((v: unknown) => str(v, 'skill', 60));
     } else if (field === 'graduationYear') output[field] = data[field] === '' ? '' : integer(Number(data[field]), field, 1950, 2100);
-    else output[field] = str(data[field], field, field === 'bio' ? 2000 : 500, false);
+    else if (field === 'semester') output[field] = data[field] === '' ? '' : integer(Number(data[field]), field, 1, 13);
+    else output[field] = str(data[field], field, field === 'name' || field === 'nameBn' ? 80 : field === 'phone' ? 40 : 500, false);
   }
-  for (const field of ['photoURL', 'linkedin', 'website']) {
-    if (output[field] && !/^https:\/\//.test(output[field])) fail('invalid-argument', `${field} must be an HTTPS URL.`);
+  if (output.phone && !validContactPhone(output.phone)) fail('invalid-argument', 'Use a contact phone with 7–15 digits, optionally including +, spaces, brackets or hyphens.');
+  for (const field of ['photoURL', 'linkedin', 'instagram', 'facebook', 'website']) {
+    if (!output[field]) continue;
+    const url = safeProfileURL(output[field]);
+    if (!url) fail('invalid-argument', `${field} must be a valid HTTPS URL without account credentials.`);
+    output[field] = url;
   }
   if (data.directoryOptIn !== undefined) {
     if (typeof data.directoryOptIn !== 'boolean') fail('invalid-argument', 'Invalid directory preference.');
@@ -140,10 +146,17 @@ function cleanProfile(data: Data): Data {
 
 export const saveProfile = callable(async req => {
   const userId = uid(req); const patch = cleanProfile(req.data || {});
+  // The contact email belongs to the authenticated account, not a submitted profile.
+  if (typeof req.auth?.token.email === 'string') patch.email = req.auth.token.email;
   await rateLimit(userId, 'profile', 15);
   await db.runTransaction(async tx => {
     const ref = db.doc(`users/${userId}`); const old = await tx.get(ref);
     const profile: Data = { ...(old.data() || { membershipStatus: 'pending', createdAt: now(), directoryOptIn: false, publicFields: ['name', 'membershipType'] }), ...patch, uid: userId, updatedAt: now() };
+    if (profile.membershipType !== 'student') profile.semester = '';
+    const missing = onboardingMissing(profile);
+    // A legacy member must always be able to withdraw their directory consent.
+    if (missing.length && !(old.exists && isDirectoryOptOut(req.data))) fail('invalid-argument', `Complete your profile: ${missing.join(', ')}.`);
+    profile.onboardingComplete = missing.length === 0;
     tx.set(ref, profile);
     const projection = profileProjection(profile);
     if (projection) tx.set(db.doc(`publicProfiles/${userId}`), projection); else tx.delete(db.doc(`publicProfiles/${userId}`));
