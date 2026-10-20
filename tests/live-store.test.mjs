@@ -44,6 +44,19 @@ test('profile writes map existing UI fields and cannot grant roles or public fie
   assert.equal(f.store.getState().profile.status,'pending');
 });
 
+test('onboarding details round trip without exposing contact fields or trusting completion claims',async()=>{
+  let saved={uid:'u1',name:'Member',membershipType:'student',membershipStatus:'pending'},patch;
+  const f=fixture({async saveMyProfile(data){patch=data;saved={...saved,...data,onboardingComplete:true};},async getMyProfile(){return saved;}});
+  await f.store.initialize();
+  await f.store.saveProfile({name:'Member',type:'student',semester:'4',phone:'+81 90 1234 5678',bio:'Studying digital business and meeting our community.',instagram:'https://www.instagram.com/member/',facebook:'https://www.facebook.com/member',website:'https://example.org',publicFields:['name','membershipType','semester','instagram','phone','email'],onboardingComplete:true,roles:['admin']});
+  assert.equal(patch.semester,'4');assert.equal(patch.phone,'+81 90 1234 5678');assert.equal(patch.instagram,'https://www.instagram.com/member/');assert.equal(patch.facebook,'https://www.facebook.com/member');
+  assert.deepEqual(patch.publicFields,['name','membershipType','semester','instagram']);assert.equal(patch.onboardingComplete,undefined);assert.equal(patch.roles,undefined);
+  const profile=f.store.getState().profile;
+  assert.equal(profile.semester,'4');assert.equal(profile.phone,patch.phone);assert.equal(profile.bio,patch.bio);assert.equal(profile.onboardingComplete,true);
+  await f.store.saveProfile({...profile,type:'alumni',semester:'',instagram:'',facebook:''});
+  assert.equal(patch.semester,'');assert.equal(patch.instagram,'');assert.equal(patch.facebook,'');
+});
+
 test('food retries reuse the request identifier and trust returned server pricing',async()=>{
   const ids=[];let attempts=0;
   const f=fixture({async placeFoodOrder(eventId,items,requestId){ids.push(requestId);if(attempts++===0)throw new Error('Network response lost');return{id:'order1',uid:'u1',eventId,pickupToken:'secure-token',totalJPY:900,paymentStatus:'unpaid',status:'confirmed',items:[{itemId:'dish1',name:'Dish',quantity:2,unitPriceJPY:450}]};}});

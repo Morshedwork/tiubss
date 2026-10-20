@@ -11,7 +11,7 @@ const ARTWORK = [
   {id: 'reference-flowers', title: 'Rooted in tradition', category: 'Art & Culture', image: 'assets/reference-flowers.webp', caption: 'Artwork supplied as a visual reference for this website.', isArtwork: true}
 ];
 const CONTENT = {gallery: 'photos', reels: 'reels', news: 'newsPosts', committee: 'committeeTerms', partners: 'partnerOrganizations', vendors: 'vendors'};
-const PUBLIC_FIELDS = ['name','nameBn','bio','photoURL','city','country','university','degree','major','graduationYear','company','jobTitle','industry','skills','linkedin','website','mentor','membershipType'];
+const PUBLIC_FIELDS = ['name','nameBn','bio','photoURL','city','country','university','degree','major','semester','graduationYear','company','jobTitle','industry','skills','linkedin','instagram','facebook','website','mentor','membershipType'];
 const COLLECTIONS = ['events','menu','vendors','members','tickets','orders','gallery','reels','news','volunteers','messages','posts','committee','partners','audits'];
 const safeUser = user => user ? {uid:user.uid,email:user.email || '',displayName:user.displayName || '',photoURL:user.photoURL || '',emailVerified:!!user.emailVerified} : null;
 const member = (row, publiclyVisible = false) => ({...row,id:row.id || row.uid,name:row.name || 'Community member',type:row.membershipType || row.type || 'student',graduation:row.graduationYear ?? row.graduation ?? '',employer:row.company ?? row.employer ?? '',avatar:row.photoURL || row.avatar || '',directoryVisible:publiclyVisible || row.directoryOptIn === true,status:publiclyVisible ? 'approved' : row.membershipStatus || row.status || 'pending',skills:array(row.skills),isDemo:false});
