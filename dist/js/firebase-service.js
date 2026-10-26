@@ -170,10 +170,25 @@ export async function getMenu(eventId) { await ready(); const f = sdk.firestore;
 export const saveMenuItem = data => call('saveMenuItem', data);
 export const placeFoodOrder = (eventId, items, requestId) => call('placeFoodOrder', { eventId, items, requestId });
 export const cancelFoodOrder = orderId => call('cancelFoodOrder', { orderId });
-export const advanceFoodOrder = (orderId, action, token, amountJPY) => call('advanceFoodOrder', { orderId, action, ...(token ? { token } : { manual: true }), ...(amountJPY !== undefined ? { amountJPY } : {}) });
+export const lookupFoodOrder = data => call('lookupFoodOrder', data);
+export const advanceFoodOrder = (orderId, action, token, amountJPY, options={}) => call('advanceFoodOrder', { orderId, action, ...(token ? {token} : options.manual===true ? {manual:true} : {}), ...(amountJPY !== undefined ? { amountJPY } : {}) });
 export async function getMyRegistrations() { await ready(true); const f = sdk.firestore; return list('registrations', [f.where('uid', '==', state.user.uid), f.orderBy('createdAt', 'desc')]); }
-export async function getMyOrders() { await ready(true); const f = sdk.firestore; return list('foodOrders', [f.where('uid', '==', state.user.uid), f.orderBy('createdAt', 'desc')]); }
-export async function getStaffOrders(eventId, vendorId) { await ready(true); const f = sdk.firestore; return list('foodOrders', [f.where('eventId', '==', eventId), f.where('vendorId', '==', vendorId), f.orderBy('createdAt', 'desc')]); }
+async function foodOrderFeed(constraints) {
+  const f=sdk.firestore, active=[], collection=f.collection(db,'foodOrders');let cursor;
+  // An old ready order must never disappear behind a busy stall's recent history.
+  for(let page=0;page<20;page++) {
+    const snapshot=await f.getDocs(f.query(collection,...constraints,f.where('status','in',['confirmed','preparing','ready']),f.orderBy('createdAt','desc'),...(cursor?[f.startAfter(cursor)]:[]),f.limit(100)));
+    active.push(...snapshot.docs.map(doc=>({id:doc.id,...normalize(doc.data())})));
+    if(snapshot.docs.length<100)break;
+    if(page===19)throw error('food/queue-too-large','This queue exceeds 2,000 active orders. Please contact the administrator before processing further orders.');
+    cursor=snapshot.docs[snapshot.docs.length-1];
+  }
+  const recent=await list('foodOrders',[...constraints,f.orderBy('createdAt','desc')]);
+  return [...new Map([...recent,...active].map(row=>[row.id,row])).values()].sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+export async function getMyOrders() { await ready(true); return foodOrderFeed([sdk.firestore.where('uid','==',state.user.uid)]); }
+export async function getStaffOrders(eventId,vendorId) { await ready(true); const f=sdk.firestore;return foodOrderFeed([f.where('eventId','==',eventId),f.where('vendorId','==',vendorId)]); }
+export async function getAdminFoodOrders() { await ready(true);if(!state.roles.some(r=>['admin','super_admin'].includes(r)))throw error('permission-denied','Administrator access is required.');return foodOrderFeed([]); }
 export async function getEventRegistrations(eventId) { await ready(true); const f = sdk.firestore; return list('registrations', [f.where('eventId', '==', eventId), f.orderBy('createdAt', 'desc')]); }
 export async function getAdminOverview() {
   await ready(true);

@@ -1,5 +1,8 @@
+import {requestId as newRequestId} from './request-id.js';
 const filters = { search: '', category: 'All', time: 'upcoming' };
 const foodFilters = new Map();
+const stallFilters = new Map();
+const menuLoading = new Set();
 const carts = new Map();
 let mountController;
 const loadedEvents = new Set();
@@ -10,7 +13,28 @@ const eventBy = (ctx, id) => state(ctx).events.find(event => event.id === id || 
 const path = event => `/events/${event.slug || event.id}`;
 const money = (ctx, n) => ctx.money(Number(n) || 0);
 const artwork = event => event.image || `assets/event-${event.id === 'e1' ? 'boishakh' : event.id === 'e2' ? 'adda' : 'career'}.svg`;
-const cartFor = id => { if (!carts.has(id)) carts.set(id, new Map()); return carts.get(id); };
+// Only basket selections and retry IDs are stored on this device, keyed by account.
+const basketUser = ctx => state(ctx).auth?.user?.uid || (state(ctx).isLive ? '' : state(ctx).profile?.id) || '';
+const basketKey = (ctx, id) => `bss-food-cart-v2:${encodeURIComponent(basketUser(ctx) || 'guest')}:${encodeURIComponent(id)}`;
+function cartFor(ctx, id) {
+  const key=basketKey(ctx,id);
+  if(!carts.has(key)) {
+    let saved;
+    if(basketUser(ctx))try { saved=JSON.parse(localStorage.getItem(key)||'null'); } catch {}
+    const valid=saved?.version===2 && Date.now()-Number(saved.updatedAt)<7*86400000;
+    const items=valid&&Array.isArray(saved.items)?saved.items.filter(x=>Array.isArray(x)&&typeof x[0]==='string'&&Number.isInteger(x[1])&&x[1]>0&&x[1]<=20).slice(0,20):[];
+    const pending=!!(valid&&saved.pending&&typeof saved.requestId==='string'&&saved.requestId.length<=128);
+    carts.set(key,{items:new Map(items),pending,requestId:pending?saved.requestId:'',snapshot:pending&&Array.isArray(saved.snapshot)?saved.snapshot.slice(0,20):[],error:''});
+  }
+  return carts.get(key);
+}
+function persistCart(ctx,id) {
+  if(!basketUser(ctx))return;
+  const cart=cartFor(ctx,id),key=basketKey(ctx,id);
+  try {if(!cart.items.size)localStorage.removeItem(key);else localStorage.setItem(key,JSON.stringify({version:2,items:[...cart.items],pending:cart.pending,requestId:cart.requestId,snapshot:cart.snapshot,updatedAt:Date.now()}));}catch {}
+}
+function clearCart(ctx,id) {const cart=cartFor(ctx,id);cart.items.clear();cart.pending=false;cart.requestId='';cart.snapshot=[];cart.error='';persistCart(ctx,id);}
+
 const activeTickets = (ctx, id) => (state(ctx).tickets || []).filter(ticket => ticket.eventId === id && ticket.status !== 'cancelled');
 const mine = (ctx, id) => activeTickets(ctx, id).find(ticket => ticket.userId === state(ctx).profile?.id);
 const remaining = (ctx, event) => Math.max(0, Number(event.capacity || 0) - Number(event.registeredCount || 0));
@@ -44,7 +68,7 @@ export function renderEvents(ctx) {
 }
 function notFound() { return `<section class="page-container empty-state"><h1>This gathering isn’t here.</h1><p>It may have been removed or the link may have changed.</p><a class="btn btn-primary" href="#/events">Explore events</a></section>`; }
 function eventNav(ctx,event,current) {
-  return `<div class="event-subnav"><a href="#${path(event)}" class="${current==='overview'?'active':''}">Overview</a>${event.foodEnabled?`<a href="#${path(event)}/food" class="${current==='food'?'active':''}">The food table <span>↗</span></a>`:''}<a href="#/profile" class="event-profile-link">My tickets & orders</a></div>`;
+  return `<div class="event-subnav"><a href="#${path(event)}" class="${current==='overview'?'active':''}">Overview</a>${event.foodEnabled?`<a href="#${path(event)}/food" class="${current==='food'?'active':''}">The food table <span>↗</span></a>`:''}<a href="#/tickets" class="event-profile-link">My tickets & orders</a></div>`;
 }
 function infoItem(label,value) { return `<div class="event-detail-info-item"><span>${label}</span><strong>${value}</strong></div>`; }
 export function renderEvent(ctx, idOrSlug) {
@@ -53,27 +77,65 @@ export function renderEvent(ctx, idOrSlug) {
   const unavailable=!ticket&&(isPast(event)||event.status!=='published'||spots===0||Number(event.price)>0);
   return `<section class="page-container event-detail"><a href="#/events" class="event-back text-link">← All gatherings</a><div class="event-detail-banner"><img src="${esc(ctx,artwork(event))}" alt="${esc(ctx,event.title)} artwork"><div class="event-banner-label"><span class="badge">Community event</span><span class="badge">${esc(ctx,event.category || 'Community')}</span></div></div><div class="event-detail-title"><div><p class="eyebrow">A LITTLE CULTURE. A LOT OF CONNECTION.</p><h1>${esc(ctx,event.title)}</h1><p class="event-detail-bangla" lang="bn">${esc(ctx,event.titleBn || '')}</p></div><button class="btn btn-secondary" data-event-action="share" data-id="${event.id}">Share event ↗</button></div>${eventNav(ctx,event,'overview')}<div class="detail-grid"><div class="event-detail-main"><h2>A moment to come together.</h2><div class="event-description">${esc(ctx,event.description || 'A gathering for the TIU Bangladeshi community and friends. Come along, connect with familiar faces, and make a few new friends.').split('\n').filter(Boolean).map(p=>`<p>${p}</p>`).join('')}</div><div class="event-info-list">${infoItem('WHEN',esc(ctx,dateLabel(ctx,event.date)))}${infoItem('TIME',esc(ctx,event.time || 'To be announced')+' · JST')}${infoItem('WHERE',esc(ctx,event.location))}${infoItem('WHO', 'Community members & friends')}</div>${event.foodEnabled?`<div class="event-food-callout"><span class="event-food-symbol" aria-hidden="true">✷</span><div><p class="eyebrow">GOOD FOOD, GOOD COMPANY</p><h3>A taste of home.</h3><p>Explore the menu, reserve your favorites, and collect at the event.</p><a href="#${path(event)}/food" class="text-link">See the food table ↗</a></div></div>`:''}<div class="event-small-print"><strong>Your booking</strong><p>Registration is confirmed only after your ticket is saved. Food has its own pickup ticket and is paid at the counter.</p></div></div><aside class="panel event-booking-panel"><p class="eyebrow">SAVE YOUR PLACE</p><h2>${eventPrice(ctx,event)}</h2><p>${Number(event.price)>0 ? 'Paid event booking is not available yet.' : 'Good company is even better when everyone can join.'}</p><div class="event-capacity"><span>${ticket ? 'Your place is reserved' : `${spots} places available`}</span><span>${esc(ctx,event.capacity)} capacity</span></div><div class="event-capacity-bar"><span style="width:${Math.min(100,Math.max(0,Number(event.capacity)?(Number(event.registeredCount||0)/Number(event.capacity))*100:0))}%"></span></div><button class="btn btn-primary event-book-button" data-event-action="${ticket?'ticket':'register'}" data-id="${event.id}" ${unavailable?'disabled':''}>${ticket?'View my event ticket ↗':event.status==='cancelled'?'Event cancelled':isPast(event)?'This event has ended':spots===0?'Fully booked':Number(event.price)>0?'Paid booking not connected':event.status!=='published'?'Registration closed':'Count me in ↗'}</button><small>${ticket ? 'Your event ticket is ready in your profile.' : 'One account. Your place in the community.'}</small>${event.foodEnabled?`<a class="text-link event-book-food" href="#${path(event)}/food">Pre-order food ↗</a>`:''}</aside></div></section>`;
 }
-function menuFor(ctx,eventId) { return (state(ctx).menu||[]).filter(item=>item.eventId===eventId); }
-function cartItems(ctx,eventId) {
-  const menu=menuFor(ctx,eventId),cart=cartFor(eventId);
-  return [...cart].map(([id,qty])=>{const item=menu.find(m=>m.id===id);return item&&qty>0?{...item,qty}:null;}).filter(Boolean);
+function menuFor(ctx,eventId) { return (state(ctx).menu||[]).filter(item=>item.eventId===eventId&&item.active!==false); }
+function vendorBy(ctx,id) {return (state(ctx).vendors||[]).find(v=>v.id===id);}
+function vendorName(ctx,id) {return vendorBy(ctx,id)?.name || 'Community food stall';}
+function cutoff(event) {return new Date(event.foodClosesAt||event.endsAt||`${event.endDate||event.date}T${event.endTime||'23:59'}:00+09:00`).getTime();}
+function orderingClosed(event) {const end=cutoff(event);return event.status!=='published'||event.foodEnabled!==true||(Number.isFinite(end)?end<=Date.now():isPast(event));}
+function deadlineLabel(event) {const end=cutoff(event);return Number.isFinite(end)?new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Tokyo',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(end)+' JST':'At the event';}
+function maximum(ctx,item,eventId) {
+  const user=basketUser(ctx),orders=(state(ctx).orders||[]).filter(o=>(o.userId||o.uid)===user&&o.eventId===eventId&&!['cancelled','expired'].includes(o.status));
+  const used=orders.reduce((sum,o)=>sum+(o.items||[]).filter(i=>(i.menuId||i.itemId)===item.id).reduce((n,i)=>n+Number(i.qty||i.quantity||0),0),0);
+  return Math.max(0,Math.min(20,Number(item.stock)||0,Math.max(0,Number(item.perPersonLimit||20)-used)));
 }
-function cartTotals(ctx,eventId) { const items=cartItems(ctx,eventId);return {items,count:items.reduce((n,i)=>n+i.qty,0),total:items.reduce((n,i)=>n+i.qty*Number(i.price),0)}; }
-function pickupOptions(event) {
-  let options=Array.isArray(event.pickup)?event.pickup:Array.isArray(event.pickupSlots)?event.pickupSlots:typeof event.pickup==='string'?[event.pickup]:[];
-  return options.length ? options.map(x=>typeof x==='string'?x:(x.label||x.time||x.id||'At the food desk')) : ['At the food desk during the event'];
+function cartItems(ctx,eventId) {
+  const menu=menuFor(ctx,eventId),cart=cartFor(ctx,eventId);
+  return [...cart.items].map(([id,qty])=>{const item=menu.find(m=>m.id===id)||cart.snapshot.find(m=>m.id===id);return qty>0?{...(item||{id,name:'Unavailable dish',price:0,stock:0,unavailable:true}),qty}:null;}).filter(Boolean);
+}
+function cartTotals(ctx,eventId) {const items=cartItems(ctx,eventId);return {items,count:items.reduce((n,i)=>n+i.qty,0),total:items.reduce((n,i)=>n+i.qty*Number(i.price),0),vendorId:items[0]?.vendorId||''};}
+function orderRequirement(ctx,event) {
+  const s=state(ctx);
+  if(!basketUser(ctx))return {kind:'signin',label:'Sign in to reserve',message:'Sign in first to keep food tickets in your account.',href:'/signin'};
+  if(!s.profile||s.profilePending||s.profile.profilePending||s.profile.onboardingComplete===false)return {kind:'profile',label:'Complete my profile',message:'Save your community profile before reserving food.',href:'/profile'};
+  if(s.profile.status==='suspended'||s.profile.membershipStatus==='suspended')return {kind:'suspended',label:'Contact the society',message:'This account cannot place orders. Please contact the society.',href:'/contact'};
+  if(event.allowGuestFood!==true&&!mine(ctx,event.id))return {kind:'registration',label:'Reserve event entry first',message:'This food table is for event ticket holders. Reserve your event place first.'};
+  return null;
+}
+function basketIssue(ctx,event) {
+  const basket=cartFor(ctx,event.id),cart=cartTotals(ctx,event.id);
+  if(basket.pending)return '';
+  if(orderingClosed(event))return 'Food reservations are closed for this event.';
+  if(new Set(cart.items.map(i=>i.vendorId)).size>1)return 'Keep one stall in each order. Remove dishes from the other stall.';
+  const invalid=cart.items.find(item=>item.unavailable||item.qty>maximum(ctx,item,event.id));
+  return invalid?`${invalid.name} is no longer available in this quantity. Adjust your basket or refresh the menu.`:'';
+}
+function qtyButtons(ctx,item,eventId,modal=false) {
+  const qty=cartFor(ctx,eventId).items.get(item.id)||0,pending=cartFor(ctx,eventId).pending,event=eventBy(ctx,eventId),closed=!event||orderingClosed(event),prefix=modal?'data-modal-event-action':'data-event-action';
+  return `<div class="qty-stepper" aria-label="Quantity for ${esc(ctx,item.name)}"><button type="button" ${prefix}="qty" data-event-id="${esc(ctx,eventId)}" data-menu-id="${esc(ctx,item.id)}" data-delta="-1" ${pending?'disabled':''} aria-label="Remove one ${esc(ctx,item.name)}">−</button><span aria-live="polite">${qty}</span><button type="button" ${prefix}="qty" data-event-id="${esc(ctx,eventId)}" data-menu-id="${esc(ctx,item.id)}" data-delta="1" ${pending||qty>=maximum(ctx,item,eventId)||closed?'disabled':''} aria-label="Add one ${esc(ctx,item.name)}">+</button></div>`;
 }
 function foodCard(ctx,item,event) {
-  const qty=cartFor(event.id).get(item.id)||0, stock=Math.max(0,Number(item.stock)||0);
-  const unavailable = !stock||isPast(event)||event.status!=='published';
+  const qty=cartFor(ctx,event.id).items.get(item.id)||0,stock=Math.max(0,Number(item.stock)||0),limit=maximum(ctx,item,event.id),unavailable=!limit||orderingClosed(event),pending=cartFor(ctx,event.id).pending;
   const allergens=Array.isArray(item.allergens)?item.allergens.join(', '):item.allergens;
-  return `<article class="food-card"><div class="food-card-art"><img src="${esc(ctx,item.image||'assets/food-biryani.svg')}" alt="${esc(ctx,item.name)}" loading="lazy">${item.vegetarian?'<span class="badge food-veg">Vegetarian</span>':''}${!stock?'<span class="badge food-soldout">Sold out</span>':''}</div><div class="food-card-info"><span class="eyebrow">${esc(ctx,item.category||'From our kitchen')}</span><h3>${esc(ctx,item.name)}</h3>${item.nameBn?`<p class="food-bangla" lang="bn">${esc(ctx,item.nameBn)}</p>`:''}<p class="food-description">${esc(ctx,item.description||'A community favorite, prepared for the gathering.')}</p><p class="food-allergens">${allergens?`Contains: ${esc(ctx,allergens)}`:'Allergen information not provided — ask the food desk.'}</p><div class="food-card-bottom"><div><strong>${money(ctx,item.price)}</strong><small>${stock ? `${stock} portions available`:'Sold out'}</small></div>${qty?`<div class="qty-stepper" aria-label="Quantity for ${esc(ctx,item.name)}"><button data-event-action="qty" data-event-id="${event.id}" data-menu-id="${item.id}" data-delta="-1" aria-label="Remove one ${esc(ctx,item.name)}">−</button><span aria-live="polite">${qty}</span><button data-event-action="qty" data-event-id="${event.id}" data-menu-id="${item.id}" data-delta="1" ${qty>=stock||unavailable?'disabled':''} aria-label="Add one ${esc(ctx,item.name)}">+</button></div>`:`<button class="btn btn-secondary food-add-btn" data-event-action="qty" data-event-id="${event.id}" data-menu-id="${item.id}" data-delta="1" ${unavailable?'disabled':''}>${unavailable?'Unavailable':'Add +'}</button>`}</div></div></article>`;
+  return `<article class="food-card"><div class="food-card-art">${item.image?`<img src="${esc(ctx,item.image)}" alt="${esc(ctx,item.name)}" loading="lazy">`:`<div class="food-dish-placeholder" aria-hidden="true"><span>✳</span><small>PREPARED WITH COMMUNITY</small></div>`}${!stock?'<span class="badge food-soldout">Sold out</span>':''}</div><div class="food-card-info"><span class="eyebrow">${esc(ctx,vendorName(ctx,item.vendorId))} · ${esc(ctx,item.category||'Menu')}</span><h3>${esc(ctx,item.name)}</h3>${item.nameBn?`<p class="food-bangla" lang="bn">${esc(ctx,item.nameBn)}</p>`:''}<p class="food-description">${esc(ctx,item.description||'Prepared for our community gathering.')}</p><p class="food-allergens">${allergens?`Contains: ${esc(ctx,allergens)}`:'Allergens not listed — ask the stall before ordering.'}</p>${item.ingredients?`<details class="food-ingredients"><summary>Ingredients & pickup</summary><p>${esc(ctx,Array.isArray(item.ingredients)?item.ingredients.join(', '):item.ingredients)}</p><p>Collect at ${esc(ctx,item.pickupLocation||vendorBy(ctx,item.vendorId)?.location||'the stall counter')}.</p></details>`:''}<div class="food-card-bottom"><div><strong>${money(ctx,item.price)}</strong><small>${stock?`${stock} available · max ${Number(item.perPersonLimit||20)} per person`:'Sold out'}${stock&&!limit?' · limit reached':''}</small></div>${qty?qtyButtons(ctx,item,event.id):`<button class="btn btn-secondary food-add-btn" data-event-action="qty" data-event-id="${esc(ctx,event.id)}" data-menu-id="${esc(ctx,item.id)}" data-delta="1" ${unavailable||pending?'disabled':''}>${!stock?'Sold out':!limit?'Limit reached':orderingClosed(event)?'Closed':'Add to basket +'}</button>`}</div></div></article>`;
+}
+function basketPreview(ctx,event) {
+  const cart=cartTotals(ctx,event.id),pending=cartFor(ctx,event.id).pending;
+  return `<aside class="food-basket" aria-label="Your food basket"><header><p class="eyebrow">YOUR LITTLE FOOD TICKET</p><h2>A place at <em>the table.</em></h2><span class="food-basket-stamp" aria-hidden="true">খাই!</span></header>${cart.count?`<p class="food-basket-stall">${esc(ctx,vendorName(ctx,cart.vendorId))}</p><ul>${cart.items.map(i=>`<li><div><strong>${esc(ctx,i.name)}</strong><small>${money(ctx,i.price)} each</small>${qtyButtons(ctx,i,event.id)}</div><span>${money(ctx,i.qty*i.price)}</span></li>`).join('')}</ul><div class="food-basket-total"><span>Due at the stall</span><strong>${money(ctx,cart.total)}</strong></div>${pending?'<p class="food-pending-note" role="status">Your last request needs confirmation. Retry it below to recover the same ticket.</p>':''}<button class="btn btn-primary" data-event-action="cart" data-id="${esc(ctx,event.id)}">${pending?'Check my reservation':'Review & reserve'} ↗</button>${!pending?`<button class="food-clear-basket" data-event-action="clear-cart" data-id="${esc(ctx,event.id)}">Empty basket</button>`:''}`:`<div class="food-basket-empty"><span aria-hidden="true">✳</span><p>Something good belongs here.</p><small>Choose dishes from one stall to begin your reservation.</small></div>`}<footer><p><strong>One stall. One pickup ticket.</strong><br>Ordering from another stall? Reserve a separate ticket.</p><a href="#/tickets">Open my ticket wallet ↗</a></footer></aside>`;
+}
+function stallChoices(ctx,event,menu,selected) {
+  const ids=[...new Set(menu.map(i=>i.vendorId).filter(Boolean))];
+  if(!ids.length)return '';
+  return `<div class="food-stall-heading"><div><p class="eyebrow">01 / CHOOSE YOUR STALL</p><h2>A little wander. <em>A good bite.</em></h2></div><button class="text-link" data-event-action="food-stall" data-event-id="${esc(ctx,event.id)}" data-value="All" aria-pressed="${selected==='All'}">View all stalls ↗</button></div><div class="food-stall-picker" aria-label="Choose a food stall">${ids.map((id,index)=>{const vendor=vendorBy(ctx,id),items=menu.filter(i=>i.vendorId===id);return `<button class="food-stall-choice ${selected===id?'is-selected':''}" data-event-action="food-stall" data-event-id="${esc(ctx,event.id)}" data-value="${esc(ctx,id)}" aria-pressed="${selected===id}"><span class="food-stall-number">${String(index+1).padStart(2,'0')}<b aria-hidden="true">✳</b></span><strong>${esc(ctx,vendorName(ctx,id))}</strong><span>${esc(ctx,vendor?.location||items[0]?.pickupLocation||'Collect at this stall')}</span><small>${items.length} ${items.length===1?'dish':'dishes'} · ${items.some(i=>maximum(ctx,i,event.id)>0)?'Explore the menu ↗':'Sold out / limit reached'}</small></button>`;}).join('')}</div>`;
+}
+export function renderFoodHub(ctx) {
+  const s=state(ctx),events=(s.events||[]).filter(e=>e.status==='published'&&e.foodEnabled).sort((a,b)=>new Date(a.startsAt||a.date)-new Date(b.startsAt||b.date)),open=events.filter(e=>!orderingClosed(e));
+  return `<section class="page-container food-page food-hub"><div class="food-page-heading"><div><p class="eyebrow">THE COMMUNITY FOOD MARKET / খাবার ঘর</p><h1>Good food.<br><span class="serif-accent">Even better company.</span></h1><p>Find your gathering, choose a stall, and save a little taste of home. Your pickup ticket stays with you, from the first craving to the last bite.</p><a class="btn btn-secondary" href="#/tickets">My food tickets ↗</a></div><div class="food-heading-stamp" lang="bn" aria-hidden="true">একসাথে<br><strong>খাই!</strong></div></div><ol class="food-order-steps"><li><span>01</span><div><strong>Find your stall</strong><small>Explore the event menu</small></div></li><li><span>02</span><div><strong>Reserve your food</strong><small>One QR ticket per stall</small></div></li><li><span>03</span><div><strong>Pay & collect</strong><small>Cash at the counter</small></div></li></ol><div class="food-market-heading"><div><p class="eyebrow">WHAT’S COOKING</p><h2>Our food tables.</h2></div><button class="btn btn-secondary" data-event-action="retry-events">Refresh gatherings</button></div>${s.dataErrors?.events?`<div class="food-status-box" role="alert"><strong>We couldn’t load the food tables.</strong><p>${esc(ctx,s.dataErrors.events)}</p><button class="btn btn-secondary" data-event-action="retry-events">Try again</button></div>`:s.loading&&!events.length?'<div class="food-status-box" role="status">Finding our community food tables…</div>':open.length?`<div class="food-hub-grid">${open.map(event=>{const vendors=(s.vendors||[]).filter(v=>v.eventId===event.id&&v.status==='published');return `<article class="food-hub-card"><div class="food-hub-card-art"><img src="${esc(ctx,artwork(event))}" alt="${esc(ctx,event.title)} artwork" loading="lazy"><span>FOOD RESERVATIONS OPEN</span></div><div class="food-hub-card-copy"><p class="eyebrow">${esc(ctx,dateLabel(ctx,event.date))} · ${esc(ctx,event.time||'Time to be announced')} JST</p><h3>${esc(ctx,event.title)}</h3><p>${esc(ctx,event.location||'See the event for venue details')}</p>${vendors.length?`<p class="food-hub-stall-names">${vendors.map(v=>esc(ctx,v.name)).join(' · ')}</p>`:''}<div><span>Closes ${esc(ctx,deadlineLabel(event))}</span><a class="btn btn-primary" href="#${path(event)}/food">Explore the stalls ↗</a></div></div></article>`;}).join('')}</div>`:`<div class="food-market-empty"><span aria-hidden="true">✳</span><h2>The next table is being set.</h2><p>There are no food reservations open right now. Published event menus will appear here when the stalls are ready.</p><a class="btn btn-secondary" href="#/events">See our gatherings ↗</a></div>`}<div class="food-hub-help"><div><h3>Already reserved something?</h3><p>Check your status, payment deadline, and pickup code in your ticket wallet.</p></div><a class="btn btn-secondary" href="#/tickets">Find my tickets ↗</a></div></section>`;
 }
 export function renderFood(ctx,idOrSlug) {
-  const event=eventBy(ctx,idOrSlug); if(!event||event.status==='draft')return notFound();
+  const event=eventBy(ctx,idOrSlug);if(!event||event.status==='draft')return notFound();
   if(!event.foodEnabled)return `<section class="page-container empty-state"><h1>The food table isn’t open.</h1><p>Food ordering is not available for this event.</p><a href="#${path(event)}" class="btn btn-primary">Back to the event</a></section>`;
-  const allMenu=menuFor(ctx,event.id), filter=foodFilters.get(event.id)||'All',menu=allMenu.filter(m=>filter==='All'||m.category===filter), cats=['All',...new Set(allMenu.map(m=>m.category).filter(Boolean))],cart=cartTotals(ctx,event.id);
-  return `<section class="page-container food-page"><a href="#${path(event)}" class="event-back text-link">← ${esc(ctx,event.title)}</a><div class="food-page-heading"><div><p class="eyebrow">THE BEST CONVERSATIONS START OVER FOOD</p><h1>A little taste <span class="serif-accent">of home.</span></h1><p>Made for sharing. Reserved for you. Pre-order your favorites for <strong>${esc(ctx,event.title)}</strong>.</p></div><div class="food-heading-stamp" lang="bn" aria-hidden="true">একসাথে<br><strong>খাই!</strong></div></div>${eventNav(ctx,event,'food')}<div class="food-order-note"><span aria-hidden="true">✦</span><span><strong>Reserve now, pay at pickup.</strong> Pay cash at the counter. Bring your food QR to the event’s food desk.</span><span class="badge">Event menu</span></div>${state(ctx).dataErrors?.[`menu:${event.id}`]?`<div class="panel" role="alert"><p>We couldn’t load this menu. ${esc(ctx,state(ctx).dataErrors[`menu:${event.id}`])}</p><button class="btn btn-secondary" data-event-action="retry-menu" data-id="${esc(ctx,event.id)}">Try again</button></div>`:''}<div class="food-filter-row">${cats.map(cat=>`<button class="filter-chip ${cat===filter?'active':''}" data-event-action="food-category" data-event-id="${event.id}" data-value="${esc(ctx,cat)}" aria-pressed="${cat===filter}">${esc(ctx,cat==='All'?'The whole table':cat)}</button>`).join('')}<span>${menu.length} ${menu.length===1?'dish':'dishes'}</span></div><div class="food-grid">${menu.length?menu.map(m=>foodCard(ctx,m,event)).join(''):`<div class="empty-state event-empty"><h3>The menu is coming together.</h3><p>Check another category or come back when the event menu is ready.</p></div>`}</div><div class="food-footer-note"><p>Check with the food desk about ingredients and dietary requirements before collecting.</p><a href="#/profile" class="text-link">My food orders ↗</a></div>${cart.count?`<div class="cart-summary"><div><span class="cart-count">${cart.count}</span><div><strong>Your food table</strong><small>${cart.count} ${cart.count===1?'item':'items'} · ${esc(ctx,event.title)}</small></div></div><div><strong>${money(ctx,cart.total)}</strong><button class="btn btn-primary" data-event-action="cart" data-id="${event.id}">Review order ↗</button></div></div>`:''}</section>`;
+  const allMenu=menuFor(ctx,event.id),filter=foodFilters.get(event.id)||'All',stall=stallFilters.get(event.id)||'All',menu=allMenu.filter(m=>(filter==='All'||m.category===filter)&&(stall==='All'||m.vendorId===stall)),cats=['All',...new Set(allMenu.map(m=>m.category).filter(Boolean))],cart=cartTotals(ctx,event.id),closed=orderingClosed(event),requirement=orderRequirement(ctx,event),loading=menuLoading.has(event.id)||(!loadedEvents.has(event.id)&&!allMenu.length),error=state(ctx).dataErrors?.[`menu:${event.id}`];
+  return `<section class="page-container food-page food-market"><a href="#/food" class="event-back text-link">← All food tables</a><div class="food-page-heading"><div><p class="eyebrow">${esc(ctx,event.title)} / খাবার ঘর</p><h1>A little taste <span class="serif-accent">of home.</span></h1><p>Choose your favourites, save your food ticket, and meet us at the stall. ${closed?'Reservations are now closed.':`Reserve before <strong>${esc(ctx,deadlineLabel(event))}</strong>.`}</p></div><div class="food-heading-stamp" lang="bn" aria-hidden="true">একসাথে<br><strong>খাই!</strong></div></div>${eventNav(ctx,event,'food')}<div class="food-order-note"><span aria-hidden="true">✦</span><span><strong>Reserve now. Pay cash at the stall.</strong><br>Unpaid reservations are held for up to 30 minutes, or until ordering closes if sooner. Your ticket shows the exact deadline.</span><a href="#/tickets">My tickets ↗</a></div>${closed?'<div class="food-status-box" role="status"><strong>This food table is closed for new reservations.</strong><p>You can still view existing tickets in your wallet.</p></div>':requirement?`<div class="food-requirement"><span>${esc(ctx,requirement.message)}</span>${requirement.kind==='registration'?`<button class="text-link" data-event-action="register" data-id="${esc(ctx,event.id)}">${esc(ctx,requirement.label)} ↗</button>`:`<a href="#${requirement.href}" class="text-link">${esc(ctx,requirement.label)} ↗</a>`}</div>`:''}${error?`<div class="food-status-box" role="alert"><strong>We couldn’t load the latest menu.</strong><p>${esc(ctx,error)}</p><button class="btn btn-secondary" data-event-action="retry-menu" data-id="${esc(ctx,event.id)}">Try again</button></div>`:''}${stallChoices(ctx,event,allMenu,stall)}<div class="food-market-layout"><div><div class="food-filter-row">${cats.map(cat=>`<button class="filter-chip ${cat===filter?'active':''}" data-event-action="food-category" data-event-id="${esc(ctx,event.id)}" data-value="${esc(ctx,cat)}" aria-pressed="${cat===filter}">${esc(ctx,cat==='All'?'All dishes':cat)}</button>`).join('')}<button class="food-refresh-menu" data-event-action="retry-menu" data-id="${esc(ctx,event.id)}" ${loading?'disabled':''}>${loading?'Refreshing…':'Refresh menu ↻'}</button></div><div class="food-grid">${menu.length?menu.map(m=>foodCard(ctx,m,event)).join(''):loading?'<div class="food-status-box" role="status">Opening the stall menu…</div>':`<div class="food-market-empty"><span aria-hidden="true">✳</span><h3>${allMenu.length?'Nothing in this little corner yet.':'The menu is coming together.'}</h3><p>${allMenu.length?'Choose another category or explore all stalls.':'The stall team will publish its dishes here when ready.'}</p>${allMenu.length?`<button class="btn btn-secondary" data-event-action="reset-food" data-id="${esc(ctx,event.id)}">Show all dishes</button>`:''}</div>`}</div></div>${basketPreview(ctx,event)}</div><div class="food-footer-note"><p>Ingredients and allergens are supplied by the stall. Ask the team about dietary requirements before ordering. Prices and availability are confirmed when your order is saved.</p><a href="#/tickets" class="text-link">My food tickets ↗</a></div>${cart.count?`<div class="cart-summary food-mobile-basket"><div><span class="cart-count">${cart.count}</span><div><strong>${esc(ctx,vendorName(ctx,cart.vendorId))}</strong><small>One stall · one ticket</small></div></div><div><strong>${money(ctx,cart.total)}</strong><button class="btn btn-primary" data-event-action="cart" data-id="${esc(ctx,event.id)}">Review order ↗</button></div></div>`:''}</section>`;
 }
 function errorMessage(error,ctx) { return ctx?.auth?.friendlyError?.(error) || error?.message || (typeof error==='string'?error:'Something went wrong. Please try again.'); }
 function bindModal(ctx,root,listener) {
@@ -89,44 +151,69 @@ function showRegistration(ctx,event) {
   }));
 }
 function changeQty(ctx,eventId,menuId,delta) {
-  const event=eventBy(ctx,eventId),item=menuFor(ctx,eventId).find(m=>m.id===menuId); if(!event||!item)return;
-  const cart=cartFor(eventId),next=Math.max(0,(cart.get(menuId)||0)+delta);
-  if(delta>0 && (isPast(event)||event.status!=='published'))return ctx.toast('Ordering is closed for this event.');
-  if(delta>0 && next>Number(item.stock))return ctx.toast('There aren’t enough portions available.');
-  if(next)cart.set(menuId,next);else cart.delete(menuId);
+  const event=eventBy(ctx,eventId),cart=cartFor(ctx,eventId),item=menuFor(ctx,eventId).find(m=>m.id===menuId)||cart.snapshot.find(m=>m.id===menuId);
+  if(!event||!Number.isInteger(delta)||![-1,1].includes(delta))return false;
+  if(cart.pending){ctx.toast('Check the pending reservation before changing this basket.');return false;}
+  const next=Math.max(0,(cart.items.get(menuId)||0)+delta);
+  if(delta>0&&(!item||orderingClosed(event))){ctx.toast('Ordering is closed or this dish is unavailable.');return false;}
+  if(delta>0&&next>maximum(ctx,item,eventId)){ctx.toast('This reaches the available stock or your per-person limit.');return false;}
+  if(delta>0&&!cart.items.has(menuId)&&cart.items.size>=20){ctx.toast('You can reserve up to 20 different dishes per ticket.');return false;}
+  const other=delta>0&&cartItems(ctx,eventId).find(i=>i.vendorId!==item.vendorId);
+  if(other){
+    ctx.modal('One stall, one food ticket.',`<div class="food-switch-stall"><p>Your basket is for <strong>${esc(ctx,vendorName(ctx,other.vendorId))}</strong>. Reserve it first, or start a new basket for <strong>${esc(ctx,vendorName(ctx,item.vendorId))}</strong>.</p><div class="modal-actions"><button class="btn btn-secondary" data-modal-event-action="keep">Keep my basket</button><button class="btn btn-primary" data-modal-event-action="switch">Switch to this stall</button></div></div>`,root=>bindModal(ctx,root,(_,button)=>{if(button.dataset.modalEventAction==='switch'){clearCart(ctx,eventId);changeQty(ctx,eventId,menuId,1);stallFilters.set(eventId,item.vendorId);ctx.render();}ctx.closeModal();}));return false;
+  }
+  if(next)cart.items.set(menuId,next);else cart.items.delete(menuId);
+  cart.requestId='';cart.snapshot=[];cart.error='';persistCart(ctx,eventId);return true;
 }
-function showCart(ctx,event,selectedPickup) {
-  const cart=cartTotals(ctx,event.id);
+function showCart(ctx,event) {
+  const cart=cartTotals(ctx,event.id),basket=cartFor(ctx,event.id),requirement=orderRequirement(ctx,event),issue=basketIssue(ctx,event),vendor=vendorBy(ctx,cart.vendorId),location=vendor?.location||cart.items[0]?.pickupLocation||'The stall counter';
   if(!cart.count){ctx.closeModal();ctx.render();return;}
-  const opts=pickupOptions(event);
-  ctx.modal('Something good is on the way.',`<div class="cart-modal"><p class="eyebrow">${esc(ctx,event.title)} · FOOD RESERVATION</p><div class="cart-modal-items">${cart.items.map(item=>`<div class="cart-modal-item"><img src="${esc(ctx,item.image||'assets/food-biryani.svg')}" alt=""><div><strong>${esc(ctx,item.name)}</strong><small>${money(ctx,item.price)} each</small><div class="qty-stepper"><button data-modal-event-action="qty" data-menu-id="${item.id}" data-delta="-1" aria-label="Remove one ${esc(ctx,item.name)}">−</button><span>${item.qty}</span><button data-modal-event-action="qty" data-menu-id="${item.id}" data-delta="1" ${item.qty>=Number(item.stock)?'disabled':''} aria-label="Add one ${esc(ctx,item.name)}">+</button></div></div><strong>${money(ctx,item.price*item.qty)}</strong></div>`).join('')}</div><label class="field cart-pickup-label">Pickup time<select id="food-pickup">${opts.map(o=>`<option value="${esc(ctx,o)}" ${o===selectedPickup?'selected':''}>${esc(ctx,o)}</option>`).join('')}</select></label><div class="cart-payment"><div><strong>Pay at pickup</strong><small>Cash · payment is due when you collect</small></div><span>¥</span></div><div class="cart-total"><span>Total due at pickup</span><strong>${money(ctx,cart.total)}</strong></div><p class="modal-helper">Your food QR is separate from your event ticket. Your order is reserved after confirmation. Bring your ticket to the counter; no online payment is collected.</p><button class="btn btn-primary event-book-button" data-modal-event-action="checkout">${state(ctx).profile?'Reserve my food ↗':'Create a profile to order ↗'}</button></div>`,root=>bindModal(ctx,root,async(e,button)=>{
+  const disabled=!!issue||requirement?.kind==='suspended';
+  ctx.modal(basket.pending?'Let’s confirm your reservation.':'Your little food ticket.',`<div class="cart-modal food-checkout"><p class="eyebrow">${esc(ctx,event.title)} · ${esc(ctx,vendorName(ctx,cart.vendorId))}</p><div class="cart-modal-items">${cart.items.map(item=>`<div class="cart-modal-item"><div><strong>${esc(ctx,item.name)}</strong><small>${money(ctx,item.price)} each</small>${qtyButtons(ctx,item,event.id,true)}</div><strong>${money(ctx,item.price*item.qty)}</strong></div>`).join('')}</div><div class="food-pickup-location"><span>COLLECT FROM</span><strong>${esc(ctx,vendorName(ctx,cart.vendorId))}</strong><p>${esc(ctx,location)}</p></div><div class="cart-payment"><div><strong>${cart.total===0?'Complimentary reservation':'Pay cash at the stall'}</strong><small>${cart.total===0?'No payment is due for these dishes.':'The stall team confirms your payment before collection.'}</small></div><span aria-hidden="true">¥</span></div><div class="cart-total"><span>${cart.total===0?'Your total':'Total due at the stall'}</span><strong>${money(ctx,cart.total)}</strong></div><p class="food-reservation-terms">${cart.total===0?'Your food ticket is separate from event admission.':'Pay within 30 minutes of reserving, or before food ordering closes if sooner. Unpaid reservations expire and portions return to the menu.'} Keep your pickup code private. ${cart.total===0?'':'The exact deadline is printed on your ticket.'}</p>${basket.pending?'<div class="food-pending-note" role="status"><strong>We are checking the same reservation.</strong><p>Retrying uses the same request reference, so it cannot create a second order. Check your wallet if you already received a ticket.</p><a href="#/tickets">Open my ticket wallet ↗</a></div>':''}${requirement&&!basket.pending?`<p class="food-checkout-requirement">${esc(ctx,requirement.message)}</p>`:''}<p class="form-error food-checkout-error" role="alert">${esc(ctx,issue||basket.error)}</p><button class="btn btn-primary event-book-button" data-modal-event-action="checkout" ${disabled?'disabled':''}>${basket.pending?'Check / retry this reservation':requirement?esc(ctx,requirement.label):'Confirm food reservation'} ↗</button><p class="modal-helper">${basketUser(ctx)?'Your basket is saved for this account on this device.':'Guest baskets are temporary. Sign in before selecting dishes to save your basket.'} Stock is reserved only after confirmation.</p></div>`,root=>bindModal(ctx,root,async(_,button)=>{
     const action=button.dataset.modalEventAction;
-    if(action==='qty'){const pickup=document.getElementById('food-pickup')?.value;changeQty(ctx,event.id,button.dataset.menuId,Number(button.dataset.delta));ctx.render();showCart(ctx,event,pickup);return;}
-    if(!state(ctx).profile){ctx.closeModal();ctx.toast('Create your profile first. Your food selection is kept for this visit.');ctx.navigate('/join');return;}
+    if(action==='qty'){changeQty(ctx,event.id,button.dataset.menuId,Number(button.dataset.delta));ctx.render();showCart(ctx,event);return;}
+    const currentRequirement=orderRequirement(ctx,event),currentBasket=cartFor(ctx,event.id);
+    if(currentRequirement&&!currentBasket.pending){ctx.closeModal();if(currentRequirement.kind==='registration')showRegistration(ctx,event);else ctx.navigate(currentRequirement.href);return;}
+    if(!basketUser(ctx)){ctx.closeModal();ctx.navigate('/signin');return;}
+    const problem=basketIssue(ctx,event);if(problem){currentBasket.error=problem;showCart(ctx,event);return;}
+    if(!currentBasket.requestId)currentBasket.requestId=newRequestId();
+    const checkoutUser=basketUser(ctx);
+    currentBasket.pending=true;currentBasket.snapshot=cartItems(ctx,event.id).map(i=>({id:i.id,name:i.name,price:i.price,qty:i.qty,vendorId:i.vendorId,pickupLocation:i.pickupLocation}));currentBasket.error='';persistCart(ctx,event.id);
+    button.textContent='Confirming your reservation…';
     try {
-      const pickup=document.getElementById('food-pickup')?.value||opts[0];
-      const order=await ctx.store.placeOrder(event.id,cartItems(ctx,event.id).map(i=>({menuId:i.id,qty:i.qty})),pickup);loadedEvents.delete(event.id);await ctx.store.loadEventData(event.id);
-      cartFor(event.id).clear();ctx.closeModal();ctx.render();ctx.toast('Food reserved. Cash is due at pickup.');
+      const order=await ctx.store.placeOrder(event.id,[...currentBasket.items].map(([menuId,qty])=>({menuId,qty})),{requestId:currentBasket.requestId});
+      if(basketUser(ctx)!==checkoutUser)return;
+      clearCart(ctx,event.id);loadedEvents.delete(event.id);ctx.closeModal();ctx.render();
+      ctx.toast(order.status==='cancelled'?'This reservation was cancelled. Open your wallet for details.':order.paymentStatus==='paid'?'Food ticket saved to your wallet.':'Food reserved. Check the payment deadline on your ticket.');
       if(ctx.showTicket)ctx.showTicket(order,'food');
-    } catch(error){ctx.toast(errorMessage(error,ctx));}
+      void ctx.store.loadEventData(event.id,{force:true}).catch(()=>{});
+    } catch(error) {
+      if(basketUser(ctx)!==checkoutUser)return;
+      const code=String(error?.code||'').replace(/^functions\//,'');
+      if(['invalid-argument','failed-precondition','permission-denied','unauthenticated','resource-exhausted','not-found','already-exists','firebase/app-check-required','firebase/unconfigured','auth/required'].includes(code)){currentBasket.pending=false;currentBasket.requestId='';currentBasket.snapshot=[];}
+      currentBasket.error=errorMessage(error,ctx);persistCart(ctx,event.id);showCart(ctx,event);
+    }
   }));
 }
 export function mountEvents(ctx) {
   mountController?.abort();mountController=new AbortController();const options={signal:mountController.signal},app=document.getElementById('app');if(!app)return;
   const user=state(ctx).auth?.user?.uid||'';if(user!==loadedForUser){loadedEvents.clear();loadedForUser=user;}
   const route=location.hash.slice(1).split('/'),current=route[1]==='events'?eventBy(ctx,route[2]):null;
-  if(current&&!loadedEvents.has(current.id)){loadedEvents.add(current.id);ctx.store.loadEventData(current.id).catch(error=>ctx.toast(errorMessage(error,ctx)));}
+  if(current&&!loadedEvents.has(current.id)&&!menuLoading.has(current.id)){loadedEvents.add(current.id);menuLoading.add(current.id);ctx.store.loadEventData(current.id).catch(error=>ctx.toast(errorMessage(error,ctx))).finally(()=>{menuLoading.delete(current.id);if(eventBy(ctx,current.id)&&location.hash.includes('/events/'))ctx.render();});}
   app.addEventListener('input',event=>{if(event.target.id==='events-search'){filters.search=event.target.value;const results=document.getElementById('event-results');if(results)results.innerHTML=eventResults(ctx);}},options);
   app.addEventListener('click',async event=>{
     const button=event.target.closest('[data-event-action]');if(!button||button.disabled)return;
     const action=button.dataset.eventAction,id=button.dataset.id;
     if(action==='retry-events'){button.disabled=true;try{await ctx.store.refresh();}catch(error){ctx.toast(errorMessage(error,ctx));}finally{button.disabled=false;}return;}
-    if(action==='retry-menu'){loadedEvents.delete(id);ctx.render();return;}
+    if(action==='retry-menu'){if(menuLoading.has(id))return;menuLoading.add(id);button.disabled=true;try{await ctx.store.loadEventData(id,{force:true});loadedEvents.add(id);}catch(error){ctx.toast(errorMessage(error,ctx));}finally{menuLoading.delete(id);ctx.render();}return;}
     if(action==='category'){filters.category=button.dataset.value;ctx.render();}
     if(action==='time'){filters.time=button.dataset.value;ctx.render();}
     if(action==='reset-filters'){filters.search='';filters.category='All';filters.time='all';ctx.render();}
     if(action==='food-category'){foodFilters.set(button.dataset.eventId,button.dataset.value);ctx.render();}
-    if(action==='qty'){changeQty(ctx,button.dataset.eventId,button.dataset.menuId,Number(button.dataset.delta));ctx.render();}
+    if(action==='food-stall'){stallFilters.set(button.dataset.eventId,button.dataset.value);foodFilters.set(button.dataset.eventId,'All');ctx.render();}
+    if(action==='reset-food'){foodFilters.set(id,'All');stallFilters.set(id,'All');ctx.render();}
+    if(action==='clear-cart'){if(!cartFor(ctx,id).pending){clearCart(ctx,id);ctx.render();}}
+    if(action==='qty'){if(changeQty(ctx,button.dataset.eventId,button.dataset.menuId,Number(button.dataset.delta)))ctx.render();}
     if(action==='cart'){const e=eventBy(ctx,id);if(e)showCart(ctx,e);}
     if(action==='register'){const e=eventBy(ctx,id);if(e)showRegistration(ctx,e);}
     if(action==='ticket'){const ticket=mine(ctx,id);if(ticket&&ctx.showTicket)ctx.showTicket(ticket,'event');}

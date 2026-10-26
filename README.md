@@ -1,5 +1,19 @@
 # TIU BSS — A little Bangladesh. A world of belonging.
 
+## Current live architecture and food ticketing (27 October 2026)
+
+The app imports `dist/js/live-store.js` and the Firebase adapter. Historical demo notes below describe earlier builds; `store.js` is now only a legacy test fixture and is not imported by the live app. The public Firebase web config is set. Authentication works independently of the protected write backend.
+
+Food UI routes: `#/food`, `#/events/:slug/food`, `#/tickets`, `#/staff/food`, `#/admin/menu`, `#/admin/vendors`, and `#/admin/orders`. They support published stall menus, one-stall baskets isolated per account, retry-safe reservations, server-authoritative prices and inventory, 30-minute cash reservation expiry, private structured QR tickets, kitchen queues, exact cash confirmation, and one-time collection. Order codes are verified server-side; a QR alone does not grant staff access. Online card payments and refunds are not connected.
+
+The frontend and backend source are complete, but **real ordering is not activated**. The public `placeFoodOrder` endpoint returned HTTP 404 during this update; App Check has no site key. Google console access was blocked before sign-in. Deploy the Firebase functions/indexes, configure App Check, grant the administrator role, then publish a real event, stalls, and dishes using the included admin screens. Billing activation may be required. See `firebase/README.md` for deployment and production acceptance checks. No real purchases, orders, cash receipts, or member records were created during testing.
+
+Verification: isolated browser flow covered basket → checkout → QR → preparation → ready → cash/change → scanned pickup → collected history. Backend tests exercise the actual compiled handlers against a transactional Firestore substitute; these are not deployed Firebase/emulator acceptance tests. Live end-to-end verification must follow activation.
+
+---
+
+## Earlier design history
+
 A responsive community website inspired by Bangladeshi rickshaw painting, peacocks, lotus flowers, and the visual brief supplied for TIU Bangladesh Student Society.
 
 ## Festive digital mela and art studio
@@ -70,9 +84,9 @@ Manual QR-token lookup is implemented. Camera scanning is not connected. The dem
 
 The user requested Firebase, so no alternative backend was substituted. `firebase/` contains TypeScript Cloud Functions, Firestore/Storage rules, indexes, an administrator bootstrap script, package lock, and detailed deployment instructions. `dist/js/firebase-service.js` provides a modular Firebase adapter for authentication, profiles, free tickets, cash food operations, uploads and CMS.
 
-This adapter is **not wired into the synchronous demo screens**. Supplying keys alone does not make the UI live. The next implementation step is to connect the asynchronous live adapter to the screens and carry out the staging/emulator acceptance tests. See `firebase/README.md` for the actual field mappings, method signatures, project configuration, role setup, and limitations. Never mix live identity or private data into local demo records.
+Historical note (superseded by the live architecture above): this adapter was initially not wired into the synchronous demo screens. Supplying keys alone does not make the UI live. The next implementation step is to connect the asynchronous live adapter to the screens and carry out the staging/emulator acceptance tests. See `firebase/README.md` for the actual field mappings, method signatures, project configuration, role setup, and limitations. Never mix live identity or private data into local demo records.
 
-`dist/firebase-config.js` is empty by design. Web app identifiers and an App Check public site key belong there once a project is supplied. Service-account keys and payment provider secrets never belong in the frontend. The website uses Sites owner-private hosting authentication at the hosting layer; this does not implement Firebase membership sign-in.
+Historical note: `dist/firebase-config.js` was initially empty; it now contains the user-supplied public web configuration. Web app identifiers and an App Check public site key belong there once a project is supplied. Service-account keys and payment provider secrets never belong in the frontend. The website uses Sites owner-private hosting authentication at the hosting layer; this does not implement Firebase membership sign-in.
 
 Not connected or fully implemented: production Firebase screen integration, verified online checkout/refunds, outbound event emails/push, advanced ticket categories, waitlists, vouchers/food variants/meal entitlements, certificate issuance, private albums, complete bilingual operational copy, and production aggregate reporting.
 

@@ -13,6 +13,33 @@ Current console status on 20 October 2026:
 
 The billing requirement, undeployed functions, and missing App Check key prevent profile/community saves and picture uploads. The website reports these failures instead of showing false success.
 
+## Food ticketing update — 27 October 2026 (Japan time)
+
+The stall ordering, ticket wallet, cash receipt, queue, and pickup implementation is prepared in this source. This is **not confirmation of a live Firebase backend deployment**. Source checks cannot activate Cloud Functions, App Check, billing, or staff privileges. Complete the activation steps below before taking real orders. No online payment processor is connected; the supported payment method is cash recorded by an authorized stall operator.
+
+Changes to the food backend:
+
+- New orders snapshot the stall name, pickup location, customer name, and a `BSS-XXXXXXXXXXXX` reference. Order names and ticket tokens remain in private order documents, never the public profile directory. Callable order results use ISO timestamps.
+- Every dish belongs to an existing stall at the selected event. Ordering requires a published matching stall, a published food-enabled event before both cutoff and end, a signed-in customer with a saved name, and an event registration unless `allowGuestFood` is enabled. Suspended members cannot order. Profile completion and food ordering do not add a new email-verification requirement; community posting retains its existing verification gate.
+- Checkout ignores client prices, canonicalizes item order, reserves stock transactionally, enforces event-wide per-customer limits, and reuses the same request ID safely after a lost response. A different cart cannot reuse that ID. One order covers one stall.
+- All existing menu edits must include `expectedStock`, even when only changing the description or price. A stale edit cannot restore stock reserved by another customer. Existing stalls and dishes cannot be moved across events.
+- `lookupFoodOrder({orderId,token})` validates a structured food ticket without depending on the current queue page. Legacy raw pickup tokens use `{code:token}`. Explicit staff lookup uses `{orderId,manual:true}` or `{code:orderNumber,manual:true}`; manual lookup is audited. The result is `{order:{id,...}}`. Current role and event/stall scope are required for every path. Use a full order ID if a shortened reference is ambiguous.
+- A scoped stall manager or an administrator can cancel an eligible unpaid, unprepared reservation. Customers can cancel their own eligible reservations. Each reservation releases stock and usage once. Paid or prepared orders require operational handling at the stall and are not automatically cancelled or refunded.
+- Cash receipt requires the exact server total. Staff pickup verifies the ticket token, or requires explicit manual mode, and atomically records a single redemption. A second pickup is rejected. Complimentary orders remain distinct from paid cash orders.
+- Active-order queue indexes are included for member, stall, and administrator queries. The frontend loads active orders separately from bounded recent history so older open tickets are not hidden by newer completed orders.
+
+Run the actual callable-handler transaction tests with:
+
+```bash
+cd firebase/functions
+npm ci
+npm test
+```
+
+The tests use a serialized in-memory Firestore substitute to exercise the compiled handlers. They cover last-portion contention, retry idempotency, server pricing, limits, cancellation, scope revocation, cash amounts, token validation, duplicate pickup, expiry, and stale inventory. They do not replace deployed App Check, security-rule, camera, or multi-device acceptance testing.
+
+After activation: create and publish the event, set its food cutoff, create and publish each stall for that event, add active dishes with accurate prices/stock/limits/allergens, and assign staff to both event and stall. Sign staff out and back in after assigning roles. Test one real account order through cash receipt → preparation → ready → pickup, then retry the same pickup to confirm rejection before opening the stall to customers. Do not fabricate live menu prices, events, or stock as part of setup.
+
 ## What is implemented
 
 - Firebase Google and email/password authentication, email verification and password reset via `dist/js/firebase-service.js`.
@@ -68,7 +95,7 @@ Profiles: `getMyProfile()`, `saveMyProfile(patch)`, `approveMembership(uid,statu
 
 Events: `getEvents()`, `createEvent(data)` (also updates when `data.id` exists), `registerForEvent(eventId,requestId)`, `cancelRegistration(registrationId)`, `checkInRegistration(registrationId,token?)`, `getMyRegistrations()`, `getEventRegistrations(eventId)`.
 
-Food: `getMenu(eventId)`, `saveMenuItem(data)`, `placeFoodOrder(eventId,items,requestId)`, `cancelFoodOrder(orderId)`, `advanceFoodOrder(orderId,action,token?,amountJPY?)`, `getMyOrders()`, `getStaffOrders(eventId,vendorId)`. `items` is `[{itemId,quantity}]`. Create the UUID request ID once per attempted checkout and reuse it on network retry. A new repeat order must have a new ID.
+Food: `getMenu(eventId)`, `saveMenuItem(data)`, `placeFoodOrder(eventId,items,requestId)`, `cancelFoodOrder(orderId)`, `lookupFoodOrder({orderId?,token?,manual?,code?})`, `advanceFoodOrder(orderId,action,token?,amountJPY?)`, `getMyOrders()`, `getStaffOrders(eventId,vendorId)`. `items` is `[{itemId,quantity}]`. Create the UUID request ID once per attempted checkout and reuse it on network retry. A new repeat order must have a new ID.
 
 For cash collection, call `advanceFoodOrder(id,'confirmPayment',undefined,order.totalJPY)`. The function checks both the operator's role and amount against the stored total. It does not trust an arbitrary `paid` flag. Use actions `prepare`, `ready`, and `pickup` for the kitchen flow. Omit a ticket token only for explicit authenticated staff manual lookup; scanner actions should send the token.
 
@@ -84,7 +111,7 @@ Requests: `submitCommunityRequest(data)`, `getMyRequests()`, `getIncomingRequest
 
 Event fields: `title`, `titleBn`, `description`, `slug`, `category`, `venue`, `startsAt`, `endsAt`, `registrationClosesAt`, `capacity`, `foodEnabled`, `foodClosesAt`, `allowGuestFood`, `status`. Date input is an ISO timestamp with a timezone or epoch milliseconds. Use `ticketPriceJPY:0`; paid admission is deliberately rejected until verified payment integration exists. `event_manager` can edit assigned events; an administrator creates a new event and assigns staff.
 
-Menu fields: `eventId`, `vendorId`, `name`, `nameBn`, `description`, `category`, `priceJPY` (integer), `stock` (remaining available stock), `perPersonLimit`, `active`, `allergens`, `ingredients`, `photoURL`, `pickupLocation`. When changing existing stock, include `expectedStock` with the last stock value read; concurrent changes reject stale edits instead of restoring already-reserved inventory. Upload a public counter record via the CMS and assign the vendor ID to staff. No unverified halal/dietary claims are introduced.
+Menu fields: `eventId`, `vendorId`, `name`, `nameBn`, `description`, `category`, `priceJPY` (integer), `stock` (remaining available stock), `perPersonLimit`, `active`, `allergens`, `ingredients`, `photoURL`, `pickupLocation`. For every existing item edit, include `expectedStock` with the last stock value read; concurrent changes reject stale edits instead of restoring already-reserved inventory. Upload a published counter record for the same event via the CMS and assign both the event and vendor IDs to staff. No unverified halal/dietary claims are introduced.
 
 Profile fields: `name`, `nameBn`, `bio`, `photoURL`, `city`, `country`, `university`, `degree`, `major`, `graduationYear`, `company`, `jobTitle`, `industry`, `skills` (array), `linkedin`, `website`, `mentor`, `membershipType`, `directoryOptIn`, `publicFields`, `email`, `phone`, `education`, `employment`. Security roles and membership approval are never accepted from a profile edit. Default public fields are name and membership type; users explicitly choose any additional allowed fields.
 

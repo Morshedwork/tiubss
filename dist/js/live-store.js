@@ -1,6 +1,8 @@
 /** Firebase-backed application state. Live failures never fall back to demo records. */
 import * as firebase from './firebase-service.js';
 import {normalizeInstagramReelURL} from './instagram.js';
+import {parseFoodTicketCode} from './food-ticket-code.js';
+import {requestId as newRequestId} from './request-id.js';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 const fail = message => { throw new Error(message); };
@@ -24,17 +26,17 @@ function japanParts(value) {
 const event = row => ({...row,...japanParts(row.startsAt),endDate:japanParts(row.endsAt).date,endTime:japanParts(row.endsAt).time,location:row.venue || '',price:row.ticketPriceJPY || 0,image:row.photoURL || '',registeredCount:Number(row.registeredCount || 0),pickup:array(row.pickupSlots),isDemo:false});
 const menuItem = row => ({...row,price:row.priceJPY,image:row.photoURL || '',isDemo:false});
 const ticket = (row, profile) => ({...row,userId:row.uid,name:row.name || (row.uid === profile?.id ? profile.name : '') || 'Community member',qrToken:row.ticketToken,status:row.checkedIn && row.status !== 'cancelled' ? 'checked_in' : row.status,isDemo:false});
-const order = row => ({...row,userId:row.uid,qrToken:row.pickupToken,total:row.totalJPY,pickup:row.pickupLocation || 'At the food counter',paymentStatus:row.paymentStatus === 'unpaid' ? 'due' : row.paymentStatus === 'complimentary' ? 'paid' : row.paymentStatus,items:array(row.items).map(i=>({...i,menuId:i.itemId,qty:i.quantity,price:i.unitPriceJPY})),isDemo:false});
+const order = row => ({...row,userId:row.uid,qrToken:row.pickupToken,total:row.totalJPY,pickup:row.pickupLocation || 'At the food counter',rawPaymentStatus:row.paymentStatus,paymentStatus:row.paymentStatus === 'unpaid' ? 'due' : row.paymentStatus === 'complimentary' ? 'paid' : row.paymentStatus,items:array(row.items).map(i=>({...i,menuId:i.itemId,qty:i.quantity,price:i.unitPriceJPY})),isDemo:false});
 const content = (kind, row) => ({...row,image:row.photoURL || '',photo:row.photoURL || '',logo:row.photoURL || '',caption:row.caption || row.description || row.alt || '',bio:row.description || '',website:row.url || '',location:row.location || row.description || '',excerpt:row.excerpt || row.description || '',date:row.date || String(row.createdAt || row.updatedAt || '').slice(0,10),isDemo:false});
 
 export function createLiveStore(api = firebase) {
   let state = {...Object.fromEntries(COLLECTIONS.map(key=>[key,[]])),gallery:clone(ARTWORK),settings:{...DEFAULT_SETTINGS},profile:null,profilePending:false,publicMembers:[],incomingRequests:[],isLive:true,loading:true,roles:[],staffAssignment:null,auth:{configured:false,user:null,roles:[],error:null},dataErrors:{}};
-  let initialization, revision = 0, knownSession = '', pendingRefresh = null, authUnsubscribe;
+  let initialization, revision = 0, knownSession = '', pendingRefresh = null, pendingOrderRefresh = null, authUnsubscribe;
   const subscribers = new Set(), requestIds = new Map(), loadedEvents = new Set();
   const getState = () => clone(state);
   const emit = () => { for (const listener of subscribers) { try { listener(getState()); } catch (error) { console.error(error); } } };
   const subscribe = listener => { subscribers.add(listener); return () => subscribers.delete(listener); };
-  const uid = (prefix='item') => `${prefix}-${crypto.randomUUID()}`;
+  const uid = (prefix='item') => `${prefix}-${newRequestId()}`;
   const explain = cause => typeof api.friendlyError === 'function' ? api.friendlyError(cause) : cause?.message || 'This Firebase operation could not be completed.';
   const requireUser = () => state.auth.user || fail('Please sign in to continue.');
   function setAuth(auth) {
@@ -43,7 +45,7 @@ export function createLiveStore(api = firebase) {
     state.auth = {configured:!!auth.configured,user,roles,error:auth.error || null};
     state.roles = roles;
     if (changed) {
-      revision++; knownSession = key; pendingRefresh = null; requestIds.clear(); loadedEvents.clear();
+      revision++; knownSession = key; pendingRefresh = null; pendingOrderRefresh = null; requestIds.clear(); loadedEvents.clear();
       // This clears all privileged and private cache before the next asynchronous read.
       state = {...state,...Object.fromEntries(COLLECTIONS.map(k=>[k,[]])),gallery:clone(ARTWORK),settings:{...DEFAULT_SETTINGS},profile:null,profilePending:false,publicMembers:[],incomingRequests:[],staffAssignment:null,dataErrors:{}};
     }
@@ -105,6 +107,7 @@ export function createLiveStore(api = firebase) {
           if(overview.audits) state.audits=array(overview.audits).map(r=>({...r,createdAt:r.at || r.createdAt,recordId:r.target,actorId:r.actor}));
           state.limitedTo=overview.limitedTo || 100;
         });
+        if(typeof api.getAdminFoodOrders==='function')await read('orders',()=>api.getAdminFoodOrders(),rows=>{state.orders=array(rows).map(order);});
       } else if (state.staffAssignment) {
         const assignment=state.staffAssignment, staffTasks=[];
         for(const eventId of array(assignment.eventIds)) {
@@ -120,12 +123,37 @@ export function createLiveStore(api = firebase) {
     try{return await promise;} finally {if(pendingRefresh===promise) pendingRefresh=null;}
   }
   const refreshSession = async()=>{await api.initFirebase();setAuth(api.getAuthState());return refresh();};
-  async function loadEventData(eventId) {
-    if(loadedEvents.has(eventId)) return getState();
+  async function loadEventData(eventId, {force = false} = {}) {
+    if(loadedEvents.has(eventId) && !force) return getState();
     const epoch=revision;
     try {const rows=await api.getMenu(eventId);if(epoch!==revision)return getState();state.menu=[...state.menu.filter(r=>r.eventId!==eventId),...rows.map(menuItem)];loadedEvents.add(eventId);delete state.dataErrors[`menu:${eventId}`];}
     catch(cause){if(epoch===revision)state.dataErrors[`menu:${eventId}`]=explain(cause);}
     if(epoch===revision)emit();return getState();
+  }
+  async function refreshOrders() {
+    if (pendingOrderRefresh) return pendingOrderRefresh;
+    const user = requireUser(), epoch = revision, roles = [...state.roles], assignment = state.staffAssignment;
+    const promise = (async()=>{
+      try {
+        const tasks = [api.getMyOrders()];
+        if (roles.some(r=>['admin','super_admin'].includes(r)) && api.getAdminFoodOrders) tasks.push(api.getAdminFoodOrders());
+        else if (assignment && roles.some(r=>['food_vendor_manager','kitchen_staff','pickup_staff'].includes(r))) {
+          for (const eventId of array(assignment.eventIds)) for (const vendorId of array(assignment.vendorIds)) tasks.push(api.getStaffOrders(eventId,vendorId));
+        }
+        const [results,registrations] = await Promise.all([Promise.all(tasks),api.getMyRegistrations()]);
+        if (epoch !== revision || user.uid !== state.auth.user?.uid) return getState();
+        state.orders = mergeRows([],results.flat().map(order));
+        state.tickets=mergeRows(state.tickets.filter(row=>row.userId!==user.uid),array(registrations).map(row=>ticket(row,state.profile)));
+        delete state.dataErrors.orders;
+        state.ordersUpdatedAt = new Date().toISOString();
+        emit(); return getState();
+      } catch(cause) {
+        if (epoch === revision) {state.dataErrors.orders = explain(cause);emit();}
+        throw new Error(explain(cause));
+      }
+    })();
+    pendingOrderRefresh=promise;
+    try {return await promise;} finally {if(pendingOrderRefresh===promise)pendingOrderRefresh=null;}
   }
   async function mutate(operation) {
     const user=requireUser(), epoch=revision;
@@ -155,7 +183,7 @@ export function createLiveStore(api = firebase) {
       const endsAt=endTime ? new Date(`${endDate}T${endTime}:00+09:00`).toISOString() : new Date(Date.parse(startsAt)+3*3600000).toISOString();
       return mutate(()=>api.createEvent({...data,startsAt,endsAt,registrationClosesAt:data.registrationClosesAt || startsAt,foodClosesAt:data.foodClosesAt || endsAt,venue:data.location,ticketPriceJPY:Number(data.price || 0),photoURL:data.image || '',capacity:Number(data.capacity),pickupSlots:typeof data.pickup==='string'?data.pickup.split(',').map(v=>v.trim()).filter(Boolean):array(data.pickup)}));
     }
-    if(collection==='menu') return mutate(()=>api.saveMenuItem({...data,priceJPY:Number(data.price),stock:Number(data.stock),expectedStock:old.stock,photoURL:data.image || '',active:data.active!==false,perPersonLimit:Number(data.perPersonLimit || 20),ingredients:Array.isArray(data.ingredients)?data.ingredients:String(data.ingredients || ''),pickupLocation:data.pickupLocation || state.vendors.find(v=>v.id===data.vendorId)?.location || 'Food counter'}));
+    if(collection==='menu') return mutate(()=>api.saveMenuItem({...data,priceJPY:Number(data.price),stock:Number(data.stock),expectedStock:record.expectedStock ?? old.stock,photoURL:data.image || '',active:data.active!==false,perPersonLimit:Number(data.perPersonLimit || 20),ingredients:Array.isArray(data.ingredients)?data.ingredients:String(data.ingredients || ''),pickupLocation:data.pickupLocation || state.vendors.find(v=>v.id===data.vendorId)?.location || 'Food counter'}));
     if(collection==='messages'||collection==='volunteers') {
       if(old.id && typeof api.updateCommunityRequest==='function') return mutate(()=>api.updateCommunityRequest(old.id,data.status));
       if(old.id) fail('Request status changes need the latest Firebase backend deployment.');
@@ -185,24 +213,41 @@ export function createLiveStore(api = firebase) {
   }
   async function registerEvent(eventId) {
     const key=`ticket:${requireUser().uid}:${eventId}`;
-    if(!requestIds.has(key)) requestIds.set(key,crypto.randomUUID());
+    if(!requestIds.has(key)) requestIds.set(key,newRequestId());
     const result=await mutate(()=>api.registerForEvent(eventId,requestIds.get(key)));requestIds.delete(key);return ticket(result,state.profile);
   }
-  async function placeOrder(eventId,items) {
+  async function placeOrder(eventId,items,options={}) {
     const normalized=items.map(i=>({itemId:i.menuId || i.id,quantity:Number(i.qty)})).sort((a,b)=>a.itemId.localeCompare(b.itemId));
     const key=`food:${requireUser().uid}:${eventId}:${JSON.stringify(normalized)}`;
-    if(!requestIds.has(key))requestIds.set(key,crypto.randomUUID());
-    const result=await mutate(()=>api.placeFoodOrder(eventId,normalized,requestIds.get(key)));requestIds.delete(key);return order(result);
+    const requestedId=typeof options==='object'?options.requestId:undefined;
+    if(requestedId && !/^[a-zA-Z0-9_-]{1,128}$/.test(requestedId))fail('Invalid checkout reference. Reopen your cart and try again.');
+    if(requestedId)requestIds.set(key,requestedId);
+    if(!requestIds.has(key))requestIds.set(key,newRequestId());
+    const userId=state.auth.user.uid;
+    const result=await mutate(()=>api.placeFoodOrder(eventId,normalized,requestIds.get(key)));requestIds.delete(key);
+    const saved=order(result);
+    if(state.auth.user?.uid===userId){state.orders=mergeRows(state.orders,[saved]);emit();}
+    return saved;
   }
   async function checkInTicket(tokenOrId) {
     const row=state.tickets.find(r=>r.id===tokenOrId || r.qrToken===tokenOrId);
     if(!row)fail('Ticket not found in your assigned event records. Refresh and use the ticket reference for manual lookup.');
     await mutate(()=>api.checkInRegistration(row.id,row.qrToken===tokenOrId?tokenOrId:undefined));return state.tickets.find(r=>r.id===row.id) || {id:row.id,message:'Guest checked in successfully.'};
   }
-  async function advanceOrder(tokenOrId,action) {
-    const row=state.orders.find(r=>r.id===tokenOrId || r.qrToken===tokenOrId);
-    if(!row)fail('Order not found in your assigned counter records. Refresh and try again.');
-    return mutate(()=>api.advanceFoodOrder(row.id,action,row.qrToken===tokenOrId?tokenOrId:undefined,action==='confirmPayment'?row.total:undefined));
+  async function lookupFoodOrder(code,options={}) {
+    const user=requireUser(),epoch=revision;
+    const result=await api.lookupFoodOrder(parseFoodTicketCode(code,options));
+    if(epoch!==revision||state.auth.user?.uid!==user.uid)fail('Your account changed. Look up the ticket again.');
+    const row=order(result.order || result);
+    state.orders=mergeRows(state.orders,[row]);emit();return clone(row);
+  }
+  async function advanceOrder(tokenOrId,action,options={}) {
+    let row=state.orders.find(r=>r.id===tokenOrId || r.qrToken===tokenOrId);
+    if(!row)row=await lookupFoodOrder(tokenOrId,{manual:options.manual===true});
+    const scanToken=options.token || (row.qrToken===tokenOrId?tokenOrId:undefined);
+    if(action==='pickup'&&!scanToken&&options.manual!==true)fail('Scan the food ticket or explicitly choose manual collection.');
+    const amountJPY=action==='confirmPayment'?(options.amountJPY ?? row.total):undefined;
+    return mutate(()=>api.advanceFoodOrder(row.id,action,scanToken,amountJPY,{manual:options.manual===true}));
   }
   function exportCSV(collection) {
     if(!COLLECTIONS.includes(collection))fail('This collection cannot be exported.');
@@ -211,11 +256,11 @@ export function createLiveStore(api = firebase) {
     const cell=value=>{let s=value==null?'':typeof value==='object'?JSON.stringify(value):String(value);if(/^[\s]*[=+\-@]/.test(s)||/^[\t\r\n]/.test(s))s=`'${s}`;return `"${s.replaceAll('"','""')}"`;};
     return [columns.map(cell).join(','),...rows.map(row=>columns.map(k=>cell(row[k])).join(','))].join('\r\n');
   }
-  return {getState,subscribe,uid,initialize,refresh,refreshSession,loadEventData,saveRecord,saveProfile,removeRecord,importInstagramReels,registerEvent,placeOrder,checkInTicket,advanceOrder,exportCSV,
+  return {getState,subscribe,uid,initialize,refresh,refreshSession,refreshOrders,loadEventData,saveRecord,saveProfile,removeRecord,importInstagramReels,registerEvent,placeOrder,checkInTicket,lookupFoodOrder,advanceOrder,exportCSV,
     createCommunityPost:data=>mutate(()=>api.createCommunityPost(data)),deleteCommunityPost:id=>mutate(()=>api.deleteCommunityPost(id)),togglePostHeart:id=>mutate(()=>api.togglePostHeart(id)),replyToCommunityPost:(id,body)=>mutate(()=>api.replyToPost(id,body)),moderateCommunityPost:(id,status)=>mutate(()=>api.moderatePost(id,status)),
     cancelTicket:id=>mutate(()=>api.cancelRegistration(id)),cancelOrder:id=>mutate(()=>api.cancelFoodOrder(id)),resetDemo:()=>fail('Live Firebase data cannot be reset from the website.'),dispose:()=>{authUnsubscribe?.();revision++;subscribers.clear();}
   };
 }
 function mergeRows(a,b){return [...new Map([...a,...b].map(row=>[row.id,row])).values()];}
 const live=createLiveStore();
-export const {getState,subscribe,uid,initialize,refresh,refreshSession,loadEventData,saveRecord,saveProfile,removeRecord,importInstagramReels,registerEvent,placeOrder,checkInTicket,advanceOrder,exportCSV,createCommunityPost,deleteCommunityPost,togglePostHeart,replyToCommunityPost,moderateCommunityPost,cancelTicket,cancelOrder,resetDemo}=live;
+export const {getState,subscribe,uid,initialize,refresh,refreshSession,refreshOrders,loadEventData,saveRecord,saveProfile,removeRecord,importInstagramReels,registerEvent,placeOrder,checkInTicket,lookupFoodOrder,advanceOrder,exportCSV,createCommunityPost,deleteCommunityPost,togglePostHeart,replyToCommunityPost,moderateCommunityPost,cancelTicket,cancelOrder,resetDemo}=live;

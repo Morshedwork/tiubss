@@ -85,6 +85,13 @@ function verifyToken(actual: unknown, expected: unknown, manual: unknown): void 
   const a = Buffer.from(actual); const b = Buffer.from(expected);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return fail('permission-denied', 'Ticket token is not valid.');
 }
+/** Callable responses have stable ISO dates; never serialize FieldValue sentinels. */
+function foodOrderResponse(orderId: string, order: Data): Data {
+  const fields = ['uid', 'eventId', 'vendorId', 'eventTitle', 'vendorName', 'customerName', 'orderNumber', 'items', 'totalJPY', 'currency', 'paymentMethod', 'paymentStatus', 'status', 'pickupToken', 'pickupLocation', 'expiresAt', 'createdAt', 'updatedAt', 'paidAt', 'preparingAt', 'readyAt', 'collectedAt', 'cancelledAt', 'cancelReason', 'stockReserved'];
+  const result: Data = { id: orderId };
+  for (const key of fields) if (order[key] !== undefined) result[key] = typeof order[key]?.toDate === 'function' ? order[key].toDate().toISOString() : order[key];
+  return result;
+}
 async function rateLimit(userId: string, operation: string, max: number): Promise<void> {
   const window = Math.floor(Date.now() / 60000);
   const ref = db.doc(`rateLimits/${hash(`${userId}:${operation}:${window}`)}`);
@@ -195,7 +202,7 @@ export const saveEvent = callable(async req => {
     status: ['draft', 'published', 'cancelled'].includes(data.status) ? data.status : 'draft', timezone: 'Asia/Tokyo', updatedAt: now()
   };
   if (event.photoURL && !/^https:\/\//.test(event.photoURL)) fail('invalid-argument', 'Event photo must be HTTPS.');
-  if (event.endsAt.toMillis() <= event.startsAt.toMillis() || event.registrationClosesAt.toMillis() > event.endsAt.toMillis()) fail('invalid-argument', 'Invalid event date range.');
+  if (event.endsAt.toMillis() <= event.startsAt.toMillis() || event.registrationClosesAt.toMillis() > event.endsAt.toMillis() || event.foodClosesAt.toMillis() > event.endsAt.toMillis()) fail('invalid-argument', 'Registration and food ordering must close no later than the event end.');
   await db.runTransaction(async tx => {
     const ref = db.doc(`events/${eventId}`); const old = await tx.get(ref);
     if ((old.data()?.registeredCount || 0) > event.capacity) fail('failed-precondition', 'Capacity cannot be lower than confirmed registrations.');
@@ -269,15 +276,20 @@ export const saveMenuItem = callable(async req => {
     eventId, vendorId, name: str(data.name, 'item name', 160), nameBn: str(data.nameBn || '', 'Bangla name', 160, false),
     description: str(data.description || '', 'description', 2000, false), category: str(data.category || 'Food', 'category', 60),
     priceJPY: integer(data.priceJPY, 'price', 0, 100000), stock: integer(data.stock, 'stock', 0, 100000),
-    perPersonLimit: integer(data.perPersonLimit || 10, 'per-person limit', 1, 100), active: data.active !== false,
+    perPersonLimit: integer(data.perPersonLimit ?? 10, 'per-person limit', 1, 100), active: data.active !== false,
     allergens: commaText(data.allergens, 'allergens', 500), ingredients: commaText(data.ingredients, 'ingredients', 1000),
     photoURL: str(data.photoURL || '', 'photo URL', 2000, false), pickupLocation: str(data.pickupLocation || 'Main food counter', 'pickup location', 200), updatedAt: now()
   };
   if (item.photoURL && !/^https:\/\//.test(item.photoURL)) fail('invalid-argument', 'Photo URL must be HTTPS.');
   await db.runTransaction(async tx => {
-    const ref = db.doc(`menuItems/${itemId}`); const old = await tx.get(ref);
+    const ref = db.doc(`menuItems/${itemId}`);
+    const [old, event, vendor] = await Promise.all([tx.get(ref), tx.get(db.doc(`events/${eventId}`)), tx.get(db.doc(`vendors/${vendorId}`))]);
+    if (!event.exists) fail('failed-precondition', 'Choose an existing event before adding dishes.');
+    if (!vendor.exists || vendor.data()?.eventId !== eventId) fail('failed-precondition', 'Choose a stall that belongs to this event.');
     if (old.exists && (old.data()?.eventId !== eventId || old.data()?.vendorId !== vendorId)) fail('failed-precondition', 'A menu item cannot move to another event or vendor.');
-    if (old.exists && item.stock !== old.data()?.stock && data.expectedStock !== old.data()?.stock) fail('aborted', 'Inventory changed. Refresh the menu before adjusting stock.');
+    // Always compare the loaded version: even an edit whose stale stock happens
+    // to equal today's stock must not silently overwrite a concurrent update.
+    if (old.exists && data.expectedStock !== old.data()?.stock) fail('aborted', 'Inventory changed. Refresh the menu before saving this dish.');
     tx.set(ref, item, { merge: true }); audit(tx, uid(req), 'menu.save', itemId, { stock: item.stock, priceJPY: item.priceJPY });
   });
   return { id: itemId };
@@ -289,29 +301,34 @@ export const placeFoodOrder = callable(async req => {
   const items: { itemId: string; quantity: number }[] = req.data.items.map((item: Data) => {
     if (!item || typeof item !== 'object') return fail('invalid-argument', 'Invalid menu item.');
     return { itemId: id(item.itemId, 'menu item'), quantity: integer(item.quantity, 'quantity', 1, 20) };
-  });
+  }).sort((a: { itemId: string }, b: { itemId: string }) => a.itemId.localeCompare(b.itemId));
   if (new Set(items.map((i: Data) => i.itemId)).size !== items.length) fail('invalid-argument', 'Combine duplicate menu items before checkout.');
   await rateLimit(userId, 'food-order', 10);
   const orderId = hash(`${userId}:${requestId}`); const pickupToken = token();
-  return db.runTransaction(async tx => {
+  await db.runTransaction(async tx => {
     const ref = db.doc(`foodOrders/${orderId}`); const existing = await tx.get(ref);
     if (existing.exists) {
       if (existing.data()?.eventId !== eventId || existing.data()?.requestFingerprint !== hash(JSON.stringify(items))) fail('already-exists', 'This request ID was used for a different order.');
-      return { id: orderId, ...existing.data() };
+      return;
     }
     const [eventSnap, registration, profile, ...menuSnaps] = await Promise.all([
       tx.get(db.doc(`events/${eventId}`)), tx.get(db.doc(`registrations/${hash(`${eventId}:${userId}`)}`)), tx.get(db.doc(`users/${userId}`)),
       ...items.map((i: Data) => tx.get(db.doc(`menuItems/${i.itemId}`)))
     ]);
     const event = eventSnap.data();
-    if (!event || event.status !== 'published' || !event.foodEnabled || event.foodClosesAt.toMillis() <= Date.now()) fail('failed-precondition', 'Food ordering is closed.');
+    if (!event || event.status !== 'published' || !event.foodEnabled || event.foodClosesAt.toMillis() <= Date.now() || event.endsAt.toMillis() <= Date.now()) fail('failed-precondition', 'Food ordering is closed.');
+    if (!profile.exists || !profile.data()?.name) fail('failed-precondition', 'Complete your member profile before ordering food.');
     if (profile.data()?.membershipStatus === 'suspended') fail('permission-denied', 'Your membership is suspended.');
     if (!event!.allowGuestFood && registration.data()?.status !== 'confirmed') fail('failed-precondition', 'Register for this event before ordering food.');
     const menu = menuSnaps.map(s => s.data()!); const vendorId = menu[0]?.vendorId;
+    if (typeof vendorId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(vendorId)) fail('failed-precondition', 'This dish does not have an available stall.');
+    const vendorSnap = await tx.get(db.doc(`vendors/${vendorId}`)), vendor = vendorSnap.data();
+    if (!vendor || vendor.status !== 'published' || vendor.eventId !== eventId) fail('failed-precondition', 'This food stall is not open for this event.');
     let totalJPY = 0;
     const lines = items.map((item: Data, index: number) => {
       const product = menu[index];
       if (!product || product.eventId !== eventId || !product.active || product.vendorId !== vendorId) fail('failed-precondition', 'Items must be available at one counter for this event.');
+      if (!Number.isSafeInteger(product.priceJPY) || product.priceJPY < 0 || product.priceJPY > 100000 || !Number.isSafeInteger(product.stock) || !Number.isSafeInteger(product.perPersonLimit)) fail('failed-precondition', 'The stall needs to update this dish before it can be ordered.');
       if (product.stock < item.quantity) fail('resource-exhausted', `${product.name} is sold out or has insufficient stock.`);
       if (item.quantity > product.perPersonLimit) fail('failed-precondition', `Quantity exceeds the limit for ${product.name}.`);
       totalJPY += product.priceJPY * item.quantity;
@@ -322,16 +339,16 @@ export const placeFoodOrder = callable(async req => {
     items.forEach((item: Data, index: number) => {
       if ((usageSnaps[index].data()?.quantity || 0) + item.quantity > menu[index].perPersonLimit) fail('failed-precondition', `Your event limit for ${menu[index].name} has been reached.`);
     });
-    const expiresAt = Timestamp.fromMillis(Math.min(Date.now() + 30 * 60000, event!.foodClosesAt.toMillis()));
-    const order = { uid: userId, eventId, vendorId, eventTitle: event!.title, items: lines, requestId, requestFingerprint: hash(JSON.stringify(items)), totalJPY, currency: 'JPY', paymentMethod: 'cash', paymentStatus: totalJPY === 0 ? 'complimentary' : 'unpaid', status: 'confirmed', pickupToken, pickupLocation: menu[0].pickupLocation, stockReserved: true, expiresAt, createdAt: now() };
+    const expiresAt = Timestamp.fromMillis(Math.min(Date.now() + 30 * 60000, event!.foodClosesAt.toMillis(), event!.endsAt.toMillis()));
+    const order = { uid: userId, eventId, vendorId, eventTitle: event!.title, vendorName: vendor!.name || 'Food stall', customerName: profile.data()!.name, orderNumber: `BSS-${orderId.slice(0, 12).toUpperCase()}`, items: lines, requestId, requestFingerprint: hash(JSON.stringify(items)), totalJPY, currency: 'JPY', paymentMethod: 'cash', paymentStatus: totalJPY === 0 ? 'complimentary' : 'unpaid', status: 'confirmed', pickupToken, pickupLocation: vendor!.location || menu[0].pickupLocation || 'At the food stall', stockReserved: true, expiresAt, createdAt: now(), updatedAt: now() };
     tx.create(ref, order);
     items.forEach((item: Data, index: number) => {
       tx.update(db.doc(`menuItems/${item.itemId}`), { stock: FieldValue.increment(-item.quantity) });
       tx.set(usageRefs[index], { quantity: (usageSnaps[index].data()?.quantity || 0) + item.quantity, updatedAt: now() });
     });
     audit(tx, userId, 'food.create', orderId, { totalJPY });
-    return { id: orderId, ...order, createdAt: null };
   });
+  return foodOrderResponse(orderId, (await db.doc(`foodOrders/${orderId}`).get()).data()!);
 });
 
 async function cancelOrder(orderId: string, actor: string, admin: boolean, expiredOnly = false): Promise<Data> {
@@ -342,7 +359,7 @@ async function cancelOrder(orderId: string, actor: string, admin: boolean, expir
     if (order!.status === 'cancelled') return { ok: true, alreadyCancelled: true };
     if (order!.status !== 'confirmed' || !['unpaid', 'complimentary'].includes(order!.paymentStatus)) fail('failed-precondition', 'This order can no longer be cancelled automatically. Contact the counter.');
     if (expiredOnly && (order!.paymentStatus !== 'unpaid' || order!.expiresAt.toMillis() > Date.now())) return { ok: false };
-    tx.update(ref, { status: 'cancelled', stockReserved: false, cancelledAt: now(), cancelReason: expiredOnly ? 'reservation_expired' : 'requested' });
+    tx.update(ref, { status: 'cancelled', stockReserved: false, cancelledAt: now(), updatedAt: now(), cancelledBy: actor, cancelReason: expiredOnly ? 'reservation_expired' : 'requested' });
     if (order!.stockReserved) for (const item of order!.items) {
       tx.update(db.doc(`menuItems/${item.itemId}`), { stock: FieldValue.increment(item.quantity) });
       tx.update(db.doc(`foodUsage/${hash(`${order!.uid}:${order!.eventId}:${item.itemId}`)}`), { quantity: FieldValue.increment(-item.quantity), updatedAt: now() });
@@ -351,7 +368,44 @@ async function cancelOrder(orderId: string, actor: string, admin: boolean, expir
     return { ok: true };
   });
 }
-export const cancelFoodOrder = callable(async req => cancelOrder(id(req.data.orderId), uid(req), await isAdmin(req)));
+export const cancelFoodOrder = callable(async req => {
+  const orderId = id(req.data.orderId), actor = uid(req);
+  const order = (await db.doc(`foodOrders/${orderId}`).get()).data();
+  if (!order) fail('not-found', 'Food order not found.');
+  if (order!.uid === actor) return cancelOrder(orderId, actor, false);
+  await authorize(req, ['food_vendor_manager'], order!.eventId, order!.vendorId);
+  return cancelOrder(orderId, actor, true);
+});
+
+/** Scoped lookup works for a ticket that is not in a bounded, loaded queue. */
+export const lookupFoodOrder = callable(async req => {
+  const actor = uid(req);
+  await authorize(req, ['food_vendor_manager', 'kitchen_staff', 'pickup_staff']);
+  await rateLimit(actor, 'food-lookup', 60);
+  const manual = req.data.manual === true;
+  const code = req.data.code === undefined ? '' : str(req.data.code, 'pickup code', 150);
+  let orderId = req.data.orderId === undefined ? '' : id(req.data.orderId, 'food order');
+  let suppliedToken: unknown = req.data.token;
+  if (!orderId && code) {
+    if (manual && !/^BSS-[A-F0-9]{12}$/i.test(code)) orderId = id(code, 'food order');
+    else {
+      const query = manual
+        ? db.collection('foodOrders').where('orderNumber', '==', code.toUpperCase())
+        : db.collection('foodOrders').where('pickupToken', '==', code);
+      const matches = await query.limit(2).get();
+      if (matches.size !== 1) fail('not-found', 'No unique food ticket was found. Use the full order reference.');
+      orderId = matches.docs[0].id;
+      if (!manual) suppliedToken = code;
+    }
+  }
+  if (!orderId) fail('invalid-argument', 'Scan a food QR or enter an order reference.');
+  const order = (await db.doc(`foodOrders/${orderId}`).get()).data();
+  if (!order) fail('not-found', 'Food ticket not found.');
+  await authorize(req, ['food_vendor_manager', 'kitchen_staff', 'pickup_staff'], order!.eventId, order!.vendorId);
+  verifyToken(suppliedToken, order!.pickupToken, manual);
+  if (manual) await db.collection('auditLogs').add({ actor, action: 'food.lookup', target: orderId, method: 'manual', at: now() });
+  return { order: foodOrderResponse(orderId, order!) };
+});
 
 export const advanceFoodOrder = callable(async req => {
   uid(req);
@@ -364,11 +418,13 @@ export const advanceFoodOrder = callable(async req => {
   return db.runTransaction(async tx => {
     const ref = db.doc(`foodOrders/${orderId}`); const snap = await tx.get(ref); const order = snap.data();
     if (!order || ['cancelled', 'collected'].includes(order.status)) fail('failed-precondition', 'This order is already closed.');
+    const event = await tx.get(db.doc(`events/${order!.eventId}`));
+    if (event.data()?.status !== 'published') fail('failed-precondition', 'This event is not open for food service. Contact the event organizer.');
     if (order!.status === 'confirmed' && order!.paymentStatus === 'unpaid' && order!.expiresAt.toMillis() <= Date.now()) fail('failed-precondition', 'The reservation has expired. Please place a new order.');
     if (action === 'confirmPayment') {
       if (order!.paymentStatus !== 'unpaid') return { ok: true, alreadyPaid: true };
       if (req.data.amountJPY !== order!.totalJPY) fail('invalid-argument', 'Cash amount must equal the server-calculated total.');
-      tx.update(ref, { paymentStatus: 'paid', paidAt: now(), paidBy: uid(req) });
+      tx.update(ref, { paymentStatus: 'paid', paidAt: now(), paidBy: uid(req), updatedAt: now() });
       tx.create(db.doc(`paymentTransactions/cash_${orderId}`), { orderId, uid: order!.uid, eventId: order!.eventId, vendorId: order!.vendorId, method: 'cash', amountJPY: order!.totalJPY, operator: uid(req), createdAt: now() });
     } else {
       const expected = ({ prepare: 'confirmed', ready: 'preparing', pickup: 'ready' } as Record<string, string>)[action];
@@ -379,7 +435,7 @@ export const advanceFoodOrder = callable(async req => {
         verifyToken(req.data.token, order!.pickupToken, req.data.manual);
         tx.create(db.doc(`foodPickupRedemptions/${orderId}`), { orderId, eventId: order!.eventId, vendorId: order!.vendorId, operator: uid(req), collectedAt: now() });
       }
-      tx.update(ref, { status: next, [`${next}At`]: now(), updatedBy: uid(req) });
+      tx.update(ref, { status: next, [`${next}At`]: now(), updatedAt: now(), updatedBy: uid(req) });
     }
     audit(tx, uid(req), `food.${action}`, orderId, { amountJPY: action === 'confirmPayment' ? order!.totalJPY : null, method: action === 'pickup' ? (req.data.manual === true ? 'manual' : 'qr') : null });
     return { ok: true };
@@ -408,7 +464,18 @@ export const saveContent = callable(async req => {
   for (const field of ['url', 'photoURL', 'instagram', 'website', 'logo']) if (content[field] && !/^https:\/\//.test(content[field])) fail('invalid-argument', `${field} must be HTTPS.`);
   content.status = input.status === 'published' ? 'published' : 'draft';
   content.updatedAt = now();
-  await db.runTransaction(async tx => { tx.set(db.doc(`${collection}/${contentId}`), content, { merge: true }); audit(tx, uid(req), 'content.save', `${collection}/${contentId}`); });
+  await db.runTransaction(async tx => {
+    const ref = db.doc(`${collection}/${contentId}`);
+    if (collection === 'vendors') {
+      const eventId = id(content.eventId, 'stall event');
+      const [old, event] = await Promise.all([tx.get(ref), tx.get(db.doc(`events/${eventId}`))]);
+      if (!event.exists) fail('failed-precondition', 'Choose an existing event for this stall.');
+      if (old.exists && old.data()?.eventId !== eventId) fail('failed-precondition', 'An existing stall cannot move to another event. Create a new stall.');
+      if (!content.name) fail('invalid-argument', 'Add a stall name.');
+      content.eventId = eventId;
+    }
+    tx.set(ref, content, { merge: true }); audit(tx, uid(req), 'content.save', `${collection}/${contentId}`);
+  });
   return { id: contentId };
 });
 
