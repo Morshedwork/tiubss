@@ -1,6 +1,5 @@
 /** Live Firebase adapter. Failed operations never fall back to browser-local demo data. */
 import {requestId} from './request-id.js';
-import {resolveLoginIdentifier} from './login-identifier.js';
 const SDK = 'https://www.gstatic.com/firebasejs/13.0.0/';
 let sdk = null, app = null, auth = null, db = null, functions = null, storage = null, initialization = null;
 let state = { configured: false, user: null, roles: [], error: null, loading: false, warning: null };
@@ -98,7 +97,7 @@ export async function signInWithGoogle() {
   await ready(); const provider = new sdk.authentication.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
   return sdk.authentication.signInWithPopup(auth, provider);
 }
-export async function signInWithEmail(email, password) { await ready(); return sdk.authentication.signInWithEmailAndPassword(auth, resolveLoginIdentifier(email), password); }
+export async function signInWithEmail(email, password) { await ready(); return sdk.authentication.signInWithEmailAndPassword(auth, String(email).trim(), password); }
 export async function signUpWithEmail(email, password, displayName) {
   await ready(); const credential = await sdk.authentication.createUserWithEmailAndPassword(auth, String(email).trim(), password);
   credential.warnings = [];
