@@ -110,15 +110,21 @@ function profileProjection(profile: Data): Data | null {
 }
 function cleanProfile(data: Data): Data {
   const output: Data = {};
+  if (data.photoSource !== undefined) {
+    if (!['google', 'custom', 'none'].includes(data.photoSource)) fail('invalid-argument', 'Invalid profile picture preference.');
+    output.photoSource = data.photoSource;
+  }
   for (const field of [...PUBLIC_FIELDS, 'email', 'phone']) {
     if (data[field] === undefined) continue;
+    // Google pictures come from the authenticated provider; removal never uses a submitted URL.
+    if (field === 'photoURL' && ['google', 'none'].includes(output.photoSource)) continue;
     if (field === 'mentor') { if (typeof data[field] !== 'boolean') fail('invalid-argument', 'Invalid mentoring preference.'); output[field] = data[field]; }
     else if (field === 'skills') {
       if (!Array.isArray(data.skills) || data.skills.length > 20) fail('invalid-argument', 'Use up to 20 skills.');
       output.skills = data.skills.map((v: unknown) => str(v, 'skill', 60));
     } else if (field === 'graduationYear') output[field] = data[field] === '' ? '' : integer(Number(data[field]), field, 1950, 2100);
     else if (field === 'semester') output[field] = data[field] === '' ? '' : integer(Number(data[field]), field, 1, 13);
-    else output[field] = str(data[field], field, field === 'name' || field === 'nameBn' ? 80 : field === 'phone' ? 40 : 500, false);
+    else output[field] = str(data[field], field, field === 'name' || field === 'nameBn' ? 80 : field === 'phone' ? 40 : field === 'photoURL' ? 2000 : 500, false);
   }
   if (output.phone && !validContactPhone(output.phone)) fail('invalid-argument', 'Use a contact phone with 7–15 digits, optionally including +, spaces, brackets or hyphens.');
   for (const field of ['photoURL', 'linkedin', 'instagram', 'facebook', 'website']) {
@@ -156,9 +162,37 @@ export const saveProfile = callable(async req => {
   // The contact email belongs to the authenticated account, not a submitted profile.
   if (typeof req.auth?.token.email === 'string') patch.email = req.auth.token.email;
   await rateLimit(userId, 'profile', 15);
+  // Reuse one trusted provider lookup if Firestore retries this transaction.
+  let googlePhoto: Promise<string> | undefined;
+  const providerPhoto = () => googlePhoto ||= getAuth().getUser(userId).then(account => {
+    const candidate = account.providerData.find(provider => provider.providerId === 'google.com')?.photoURL;
+    return typeof candidate === 'string' && candidate.length <= 2000 ? safeProfileURL(candidate) || '' : '';
+  });
   await db.runTransaction(async tx => {
     const ref = db.doc(`users/${userId}`); const old = await tx.get(ref);
-    const profile: Data = { ...(old.data() || { membershipStatus: 'pending', createdAt: now(), directoryOptIn: false, publicFields: ['name', 'membershipType'] }), ...patch, uid: userId, updatedAt: now() };
+    const previous = old.data() || {};
+    const photo: Data = {};
+    if (patch.photoSource === 'google') {
+      const url = await providerPhoto();
+      if (!url) fail('failed-precondition', 'Your linked Google account has no available profile picture. Choose a picture or remove it instead.');
+      photo.photoSource = 'google'; photo.photoURL = url;
+    } else if (patch.photoSource === 'none') {
+      photo.photoSource = 'none'; photo.photoURL = '';
+    } else if (patch.photoSource === 'custom') {
+      const url = patch.photoURL !== undefined ? patch.photoURL : previous.photoSource === 'custom' ? previous.photoURL : '';
+      if (!url || !safeProfileURL(url) || url.length > 2000) fail('invalid-argument', 'Choose a valid HTTPS profile picture.');
+      photo.photoSource = 'custom'; photo.photoURL = url;
+    } else if (patch.photoURL !== undefined) {
+      // Older clients have no preference field: an explicit blank still means removed.
+      photo.photoSource = patch.photoURL ? 'custom' : 'none'; photo.photoURL = patch.photoURL;
+    } else if (!old.exists) {
+      const url = await providerPhoto();
+      photo.photoSource = url ? 'google' : 'none'; photo.photoURL = url;
+    } else if (!['google', 'custom', 'none'].includes(previous.photoSource)) {
+      // Never resurrect a legacy blank picture or relabel an existing upload as Google.
+      photo.photoSource = previous.photoURL ? 'custom' : 'none';
+    }
+    const profile: Data = { ...(old.exists ? previous : { membershipStatus: 'pending', createdAt: now(), directoryOptIn: false, publicFields: ['name', 'membershipType'] }), ...patch, ...photo, uid: userId, updatedAt: now() };
     if (profile.membershipType !== 'student') profile.semester = '';
     const missing = onboardingMissing(profile);
     // A legacy member must always be able to withdraw their directory consent.

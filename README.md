@@ -10,6 +10,12 @@ The frontend and backend source are complete, but **real ordering is not activat
 
 Verification: isolated browser flow covered basket → checkout → QR → preparation → ready → cash/change → scanned pickup → collected history. Backend tests exercise the actual compiled handlers against a transactional Firestore substitute; these are not deployed Firebase/emulator acceptance tests. Live end-to-end verification must follow activation.
 
+## Google profile pictures (27 October 2026)
+
+New Google accounts use the authenticated Google-provider picture in onboarding and the private dashboard. The profile editor offers upload/change, use Google picture, and remove. A private `photoSource` preference distinguishes Google, custom, and no-photo choices. Custom uploads and explicit removals survive sign-in; legacy empty photos remain empty. Google-selected private profiles use the current provider picture, and saving updates the server projection. The backend resolves Google photos from Firebase Admin provider data rather than trusting a submitted Google URL. Directory photo publication still requires approval, opt-in, and the photo field permission.
+
+Unsaved drafts stay in the current tab and are isolated by account. Uploads and saves guard against account switches; blocked or failed saves keep the form available to retry and never claim success. Profile saving still requires the pending Firebase Functions/App Check activation, and new uploads require Storage activation. No Firebase account or real member was modified for this update. Verification passed 75 frontend tests and 26 backend handler tests. Isolated desktop browser checks covered remove → save → sign-in → still removed → restore Google. The dashboard and editor fit a 375 px mobile content area without horizontal page overflow.
+
 ---
 
 ## Earlier design history

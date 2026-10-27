@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 
 globalThis.__uiAuth={user:null,error:null};
-const source=(await readFile(new URL('../dist/js/community.js',import.meta.url),'utf8')).replace("import * as auth from './firebase-service.js';",`const auth={subscribeAuth:()=>()=>{},getAuthState:()=>globalThis.__uiAuth,friendlyError:error=>error.message,signInWithGoogle:async()=>{globalThis.__uiAuth={user:{uid:'google-new',email:'member@example.test',displayName:'Member',emailVerified:true}};}};`);
+const source=(await readFile(new URL('../dist/js/community.js',import.meta.url),'utf8')).replace("import * as auth from './firebase-service.js';",`const auth={subscribeAuth:()=>()=>{},getAuthState:()=>globalThis.__uiAuth,friendlyError:error=>error.message,signInWithGoogle:async()=>{globalThis.__uiAuth={user:{uid:'google-new',email:'member@example.test',displayName:'Member',emailVerified:true}};}};`).replace("from './profile-photo.js'", `from '${new URL('../dist/js/profile-photo.js',import.meta.url).href}'`);
 const ui=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
 const complete={id:'member',name:'Test Member',email:'member@example.test',phone:'+81 (90) 1234-5678',bio:'I study digital business and enjoy community events.',type:'student',university:'TIU',major:'DBI',semester:4,graduation:2027,status:'approved'};
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

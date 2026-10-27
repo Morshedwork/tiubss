@@ -1,4 +1,5 @@
 /** Live Firebase adapter. Failed operations never fall back to browser-local demo data. */
+import {requestId} from './request-id.js';
 const SDK = 'https://www.gstatic.com/firebasejs/13.0.0/';
 let sdk = null, app = null, auth = null, db = null, functions = null, storage = null, initialization = null;
 let state = { configured: false, user: null, roles: [], error: null, loading: false, warning: null };
@@ -214,12 +215,16 @@ export async function getMyRequests() { await ready(true); return list('communit
 export const assignStaff = (uid, roles, eventIds = [], vendorIds = []) => call('assignStaff', { uid, roles, eventIds, vendorIds });
 export async function uploadImage(file, { kind = 'gallery', id = 'general' } = {}) {
   await ready(true);
+  const uploadUserId = auth.currentUser.uid;
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size >= 5 * 1024 * 1024) throw error('storage/invalid-image', 'Choose a JPG, PNG, or WebP image smaller than 5 MB.');
   if (!['gallery', 'avatar'].includes(kind)) throw error('storage/invalid-path', 'Invalid upload type.');
   if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw error('storage/invalid-path', 'Invalid album identifier.');
   if (kind === 'gallery' && !state.roles.some(role => ['super_admin','admin','content_editor'].includes(role))) throw error('permission-denied', 'Content editor access is required.');
   const suffix = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[file.type];
-  const path = kind === 'avatar' ? `avatars/${state.user.uid}/${crypto.randomUUID()}.${suffix}` : `gallery/${id}/${crypto.randomUUID()}.${suffix}`;
+  const path = kind === 'avatar' ? `avatars/${uploadUserId}/${requestId()}.${suffix}` : `gallery/${id}/${requestId()}.${suffix}`;
   const ref = sdk.files.ref(storage, path); await sdk.files.uploadBytes(ref, file, { contentType: file.type });
-  return { path, url: await sdk.files.getDownloadURL(ref) };
+  if (auth.currentUser?.uid !== uploadUserId) throw error('auth/account-changed', 'Your signed-in account changed. Reopen your dashboard before saving a picture.');
+  const url = await sdk.files.getDownloadURL(ref);
+  if (auth.currentUser?.uid !== uploadUserId) throw error('auth/account-changed', 'Your signed-in account changed. Reopen your dashboard before saving a picture.');
+  return { path, url };
 }

@@ -3,6 +3,7 @@ import * as firebase from './firebase-service.js';
 import {normalizeInstagramReelURL} from './instagram.js';
 import {parseFoodTicketCode} from './food-ticket-code.js';
 import {requestId as newRequestId} from './request-id.js';
+import {resolveProfilePhoto, safePhotoURL} from './profile-photo.js';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 const fail = message => { throw new Error(message); };
@@ -15,8 +16,8 @@ const ARTWORK = [
 const CONTENT = {gallery: 'photos', reels: 'reels', news: 'newsPosts', committee: 'committeeTerms', partners: 'partnerOrganizations', vendors: 'vendors'};
 const PUBLIC_FIELDS = ['name','nameBn','bio','photoURL','city','country','university','degree','major','semester','graduationYear','company','jobTitle','industry','skills','linkedin','instagram','facebook','website','mentor','membershipType'];
 const COLLECTIONS = ['events','menu','vendors','members','tickets','orders','gallery','reels','news','volunteers','messages','posts','committee','partners','audits'];
-const safeUser = user => user ? {uid:user.uid,email:user.email || '',displayName:user.displayName || '',photoURL:user.photoURL || '',emailVerified:!!user.emailVerified} : null;
-const member = (row, publiclyVisible = false) => ({...row,id:row.id || row.uid,name:row.name || 'Community member',type:row.membershipType || row.type || 'student',graduation:row.graduationYear ?? row.graduation ?? '',employer:row.company ?? row.employer ?? '',avatar:row.photoURL || row.avatar || '',directoryVisible:publiclyVisible || row.directoryOptIn === true,status:publiclyVisible ? 'approved' : row.membershipStatus || row.status || 'pending',skills:array(row.skills),isDemo:false});
+const safeUser = user => user ? {uid:user.uid,email:user.email || '',displayName:user.displayName || '',photoURL:safePhotoURL(user.photoURL),providerData:array(user.providerData).map(provider=>({providerId:String(provider.providerId || ''),photoURL:safePhotoURL(provider.photoURL)})),emailVerified:!!user.emailVerified} : null;
+const member = (row, publiclyVisible = false) => ({...row,id:row.id || row.uid,name:row.name || 'Community member',type:row.membershipType || row.type || 'student',graduation:row.graduationYear ?? row.graduation ?? '',employer:row.company ?? row.employer ?? '',avatar:safePhotoURL(Object.hasOwn(row,'photoURL') ? row.photoURL : row.avatar),directoryVisible:publiclyVisible || row.directoryOptIn === true,status:publiclyVisible ? 'approved' : row.membershipStatus || row.status || 'pending',skills:array(row.skills),isDemo:false});
 function japanParts(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return {date:'',time:''};
@@ -50,9 +51,10 @@ export function createLiveStore(api = firebase) {
       state = {...state,...Object.fromEntries(COLLECTIONS.map(k=>[k,[]])),gallery:clone(ARTWORK),settings:{...DEFAULT_SETTINGS},profile:null,profilePending:false,publicMembers:[],incomingRequests:[],staffAssignment:null,dataErrors:{}};
     }
     if (user && (!state.profile || state.profile.id !== user.uid || state.profilePending)) {
-      state.profile = member({uid:user.uid,name:user.displayName || '',email:user.email,photoURL:user.photoURL,membershipType:'student',membershipStatus:'pending'});
+      state.profile = member({uid:user.uid,name:user.displayName || '',email:user.email,...resolveProfilePhoto({},user),membershipType:'student',membershipStatus:'pending'});
       state.profile.profilePending = true; state.profilePending = true;
     }
+    else if (user && state.profile?.id === user.uid) Object.assign(state.profile,resolveProfilePhoto(state.profile,user));
     if (!user) { state.profile = null; state.profilePending = false; }
     emit();
     return changed;
@@ -87,7 +89,7 @@ export function createLiveStore(api = firebase) {
       ];
       if (typeof api.getCommunityPosts === 'function') tasks.push(read('posts',()=>api.getCommunityPosts(),rows=>{updates.posts=array(rows);}));
       if (userId) {
-        tasks.push(read('profile',()=>api.getMyProfile(),row=>{if(row){updates.profile=member(row);updates.profile.profilePending=false;updates.profilePending=false;}}));
+        tasks.push(read('profile',()=>api.getMyProfile(),row=>{if(row){updates.profile=member({...row,...resolveProfilePhoto(row,state.auth.user)});updates.profile.profilePending=false;updates.profilePending=false;}}));
         tasks.push(read('tickets',()=>api.getMyRegistrations(),rows=>{updates.tickets=array(rows).map(r=>ticket(r,state.profile));}));
         tasks.push(read('orders',()=>api.getMyOrders(),rows=>{updates.orders=array(rows).map(order);}));
         if(typeof api.getMyRequests==='function') tasks.push(read('requests',()=>api.getMyRequests(),rows=>{updates.messages=array(rows).filter(r=>r.type!=='volunteer');updates.volunteers=array(rows).filter(r=>r.type==='volunteer');}));
@@ -165,8 +167,8 @@ export function createLiveStore(api = firebase) {
   async function saveProfile(profile) {
     const patch={};
     const aliases={type:'membershipType',graduation:'graduationYear',employer:'company',avatar:'photoURL',directoryVisible:'directoryOptIn'};
-    for(const key of [...PUBLIC_FIELDS,'email','phone','directoryOptIn','publicFields','education','employment']) if(profile[key]!==undefined)patch[key]=profile[key];
-    for(const [from,to] of Object.entries(aliases))if(profile[from]!==undefined)patch[to]=profile[from];
+    for(const key of [...PUBLIC_FIELDS,'photoSource','email','phone','directoryOptIn','publicFields','education','employment']) if(profile[key]!==undefined)patch[key]=profile[key];
+    for(const [from,to] of Object.entries(aliases))if(profile[from]!==undefined && !(to==='photoURL' && profile.photoURL!==undefined))patch[to]=profile[from];
     // Only explicit per-field choices can broaden what reaches the public directory.
     patch.publicFields = array(profile.publicFields || state.profile?.publicFields || ['name','membershipType']).filter(key=>PUBLIC_FIELDS.includes(key));
     await mutate(()=>api.saveMyProfile(patch));
