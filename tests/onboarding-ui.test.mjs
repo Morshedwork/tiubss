@@ -58,3 +58,11 @@ test('alumni onboarding hides and disables semester while requiring graduation y
   const alumni={...complete,id:'alumni',type:'alumni',phone:'',semester:'',graduation:''};globalThis.__uiAuth={user:{uid:'alumni',email:alumni.email,emailVerified:true}};
   const html=ui.renderProfile(context(alumni));assert.match(html,/data-semester-field hidden/);assert.match(html,/<select name="semester" disabled>/);assert.match(html,/name="graduation" type="number"[^>]*required/);
 });
+
+
+test('community explains pending review privately and never publishes a pending member card',()=>{
+ const ctx=context({...complete,status:'pending'});
+ let html=ui.renderCommunity(ctx);assert.match(html,/Your membership is awaiting approval/);assert.doesNotMatch(html,/community-member-card/);
+ ctx.store.getState=()=>({profile:null,publicMembers:[],members:[{...complete,status:'pending',directoryVisible:true}],posts:[],dataErrors:{members:'Read denied'}});
+ html=ui.renderCommunity(ctx);assert.match(html,/community directory could not load/);assert.match(html,/refresh-directory/);assert.doesNotMatch(html,/Test Member/);
+});

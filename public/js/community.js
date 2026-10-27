@@ -78,19 +78,23 @@ function communityCorner(ctx, p) {
 }
 
 export function renderCommunity(ctx, alumniOnly = false) {
-  const members = publicMembers(ctx).filter(m => !alumniOnly || memberType(m) === 'alumni');
+  const s=state(ctx),directoryError=s.dataErrors?.members||s.dataErrors?.connection;
+  const members = directoryError?[]:publicMembers(ctx).filter(m => !alumniOnly || memberType(m) === 'alumni');
   return `<main class="page-container community-page">
     <header class="page-heading community-heading"><div><p class="eyebrow">${alumniOnly ? 'ONCE A PART. ALWAYS A PART.' : 'ROOTS IN BANGLADESH. CONNECTIONS EVERYWHERE.'}</p><h1>${alumniOnly ? 'Our alumni.<br><em>Our next chapter.</em>' : 'Find your people.<br><em>Grow together.</em>'}</h1><p>${alumniOnly ? 'Meet the graduates carrying our community into new cities, careers, and possibilities.' : 'Students, alumni, and friends—bringing their stories, skills, and a little piece of home.'}</p></div><div class="community-heading-note"><span class="community-rosette" aria-hidden="true">✳</span><p>Different paths.<br><strong>One community.</strong></p></div></header>
     <div class="community-intro-strip"><p><strong>A directory built on choice.</strong> Members decide whether their profile appears here. Contact details stay private.</p><a class="btn btn-secondary" href="/join">Join the community <span aria-hidden="true">↗</span></a></div>
     ${!alumniOnly ? communityWall(ctx) : ''}
     <div class="cw-directory-title"><p class="eyebrow">FAMILIAR FACES. NEW POSSIBILITIES.</p><h2>${alumniOnly ? 'Meet the alumni.' : 'Find your people.'}</h2></div>
     <div class="directory-sample-notice"><span class="sample-label">Our community</span> Members choose which details to share here. Connection requests stay in the community inbox.</div>
+    ${s.profile?.status==='pending'?`<div class="directory-sample-notice" role="status"><strong>Your membership is awaiting approval.</strong> ${s.profilePending?'Finish and save your profile to submit it for review.':'The team will review your submitted profile. It will appear here once approved, complete, and opted in.'} <a href="/profile">My profile ↗</a></div>`:''}
     <section aria-label="Find community members">
+      ${directoryError?'<div class="empty-state" role="alert"><h3>The community directory could not load.</h3><p>Your profile may still be saved. Retry to check the latest public listings.</p><button class="btn btn-primary" data-community-action="refresh-directory">Retry directory</button></div>':''}
+      <div ${directoryError?'hidden':''}>
       <div class="toolbar directory-toolbar"><label class="directory-search"><span class="sr-only">Search members by name, university, skill, employer, or city</span><input class="search-input" type="search" id="community-search" placeholder="Search a name, skill, university, or city…" value="${esc(ctx, directoryState.query)}"><span aria-hidden="true">⌕</span></label><div class="directory-filters" role="group" aria-label="Member filters">${!alumniOnly ? ['all', 'student', 'alumni', 'community'].map(type => `<button class="filter-chip ${directoryState.type === type ? 'active' : ''}" data-community-action="filter" data-filter="${type}" aria-pressed="${directoryState.type === type}">${type === 'all' ? 'Everyone' : types[type]}</button>`).join('') : ''}<button class="filter-chip ${directoryState.mentors ? 'active' : ''}" data-community-action="mentors" aria-pressed="${directoryState.mentors}">Open to mentoring</button></div></div>
       <div class="directory-results-line"><p id="community-results" aria-live="polite">${members.length} ${members.length === 1 ? 'person' : 'people'} to discover</p><span>Community, beyond campus</span></div>
       <div class="member-grid community-grid" id="community-grid" data-alumni-only="${alumniOnly}">${members.map(m => memberCard(ctx, m)).join('')}</div>
       <div class="empty-state directory-empty" id="community-empty" hidden><span aria-hidden="true">⌕</span><h3>No people found</h3><p>Try a different name, skill, or city, or clear the filters.</p><button class="btn btn-secondary" data-community-action="clear-filters">Clear filters</button></div>
-    </section>
+    </div></section>
     <section class="community-callout"><div><p class="eyebrow">A LITTLE GUIDANCE GOES A LONG WAY</p><h2>Your experience could be<br>someone’s beginning.</h2><p>Share what you’ve learned. Make your profile available for mentorship.</p></div><a class="btn btn-primary" href="${state(ctx).profile ? '/profile' : '/join'}">Become a mentor <span aria-hidden="true">↗</span></a></section>
   </main>`;
 }
@@ -428,6 +432,7 @@ export function mountCommunity(ctx) {
       return;
     }
 
+    if(action==='refresh-directory'){button.disabled=true;try{await ctx.store.refresh();ctx.render();}catch(error){ctx.toast(error.message);}finally{button.disabled=false;}return;}
     if (action === 'post-filter') { wallFilter = button.dataset.filter; applyWallFilters(); }
     if (action === 'post-compose') composePost(ctx, button.dataset.category);
     if (action === 'post-reply') replyToPost(ctx, button.dataset.id);

@@ -5,7 +5,7 @@ import {renderAdmin,mountAdmin} from './admin.js';
 import {currentRoute} from './router.js';
 
 export const SERVICE_TABS=['overview','members','events','registrations','counter','menu','vendors','orders','wall','volunteers','inbox','reports','roles'];
-export function serviceTab(path){const key=String(path).split('?')[0].split('/')[3]||'overview';return SERVICE_TABS.includes(key)?key:'overview';}
+export function serviceTab(path){const key=String(path).split('?')[0].split('/')[3]||'members';return SERVICE_TABS.includes(key)?key:'overview';}
 export function serviceAccess(state){
   if(!state.auth?.configured)return 'connection';
   if(!state.auth.user)return 'signed-out';

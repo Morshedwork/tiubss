@@ -6,12 +6,14 @@ const original = (await readFile(new URL('../public/js/firebase-service.js', imp
   .replace("from './app-check-config.js'", `from '${new URL('../public/js/app-check-config.js', import.meta.url).href}'`)
   .replace("from './request-id.js'", `from '${new URL('../public/js/request-id.js', import.meta.url).href}'`);
 let sequence = 0;
-async function fixture(driver) {
+async function fixture(driver, administrator=false) {
   const key = `__firebaseQueryFixture${++sequence}`;
   globalThis[key] = driver;
   const source = original
     .replace('let sdk = null, app = null, auth = null, db = null, functions = null, storage = null, initialization = null;', `let sdk = globalThis.${key}, app = null, auth = {currentUser:null}, db = {}, functions = null, storage = null, initialization = null;`)
     .replace('configured: false, user: null', 'configured: true, user: null')
+    .replace('auth = {currentUser:null}', administrator?"auth = {currentUser:{uid:'organiser'}}":'auth = {currentUser:null}')
+    .replace('configured: true, user: null, roles: []',administrator?"configured: true, user: {uid:'organiser'}, roles: ['admin']":'configured: true, user: null, roles: []')
     + '\nexport {list as readCollection};';
   return {api: await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`), cleanup: () => delete globalThis[key]};
 }
@@ -89,4 +91,26 @@ test('App Check selects the registered provider and requires no secret in browse
  assert.ok(appCheckOptions(sdk,{BSS_FIREBASE_APP_CHECK_KEY:'legacy-public-key'}).provider instanceof V3);
  assert.equal(appCheckOptions(sdk,{}),null);
  assert.throws(()=>appCheckOptions(sdk,{BSS_FIREBASE_APP_CHECK_KEY:'key',BSS_FIREBASE_APP_CHECK_PROVIDER:'unknown'}),/not supported/);
+});
+
+test('public directory reads the next page rather than dropping profiles beyond 100',async()=>{
+ const sdk=driver((q,n)=>snapshot(n===1?Array.from({length:100},(_,i)=>({id:`p${i}`,name:'Public member'})):[{id:'beyond-first-page',name:'Another member'}]));
+ const f=await fixture(sdk);
+ try{const rows=await f.api.getPublicProfiles();assert.equal(rows.length,101);assert.equal(rows[100].id,'beyond-first-page');assert.equal(sdk.queries[1].constraints.find(c=>c.kind==='after').id,'p99');assert.ok(sdk.queries.every(q=>q.collection.name==='publicProfiles'));}finally{f.cleanup();}
+});
+
+test('pending members beyond page one survive failures in unrelated admin collections',async()=>{
+ let memberPage=0;
+ const sdk=driver(q=>{
+  if(q.collection.name==='photos')throw Object.assign(new Error('Photo access denied'),{code:'permission-denied'});
+  if(q.collection.name==='users')return snapshot(++memberPage===1?Array.from({length:100},(_,i)=>({id:`m${i}`,membershipStatus:'approved'})):[{id:'pending-late',membershipStatus:'pending'}]);
+  return snapshot([]);
+ });
+ const f=await fixture(sdk,true);
+ try{const result=await f.api.getAdminOverview();assert.equal(result.members.length,101);assert.equal(result.members.at(-1).id,'pending-late');assert.ok(result.errors.gallery);assert.equal(result.gallery,undefined);assert.equal(result.errors.members,undefined);}finally{f.cleanup();}
+});
+
+test('a denied later directory page never becomes a misleading partial result',async()=>{
+ const sdk=driver((q,n)=>{if(n===2)throw Object.assign(new Error('Denied'),{code:'permission-denied'});return snapshot(Array.from({length:100},(_,i)=>({id:`p${i}`})));});const f=await fixture(sdk);
+ try{await assert.rejects(f.api.getPublicProfiles(),/Denied/);}finally{f.cleanup();}
 });

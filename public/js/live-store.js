@@ -82,7 +82,7 @@ export function createLiveStore(api = firebase) {
       const epoch = revision, userId = state.auth.user?.uid, administrator = state.roles.some(r=>['admin','super_admin'].includes(r));
       const editor = administrator || state.roles.includes('content_editor');
       if (!state.auth.configured) { state.loading=false; state.dataErrors.connection=state.auth.error || 'Firebase could not connect. Check your connection and try again.'; emit(); return getState(); }
-      const errors = {}, updates = {};
+      const errors = {}, updates = {publicMembers:[],members:[]};
       const read = async (label, fn, apply) => { try { const result = await fn(); if (epoch === revision) apply(result); } catch(cause) { errors[label]=explain(cause); } };
       const tasks = [
         read('members',()=>api.getPublicProfiles(),rows=>{updates.members=array(rows).map(r=>member(r,true));updates.publicMembers=updates.members;}),
@@ -104,7 +104,12 @@ export function createLiveStore(api = firebase) {
       state = {...state,...updates,dataErrors:errors};
       if (administrator) {
         await read('admin',()=>api.getAdminOverview(),overview=>{
-          if(overview.settings){const settings=array(overview.settings).find(r=>r.id==='settings');if(settings)state.settings={...DEFAULT_SETTINGS,...settings};}state.members=array(overview.members).map(r=>member(r));state.events=array(overview.events).map(event);state.orders=array(overview.orders).map(order);state.tickets=array(overview.registrations).map(r=>ticket(r,state.profile));
+          for(const [key,message] of Object.entries(overview.errors||{}))errors[`admin:${key}`]=message;
+          if(overview.settings){const settings=array(overview.settings).find(r=>r.id==='settings');if(settings)state.settings={...DEFAULT_SETTINGS,...settings};}
+          state.members=array(overview.members).map(r=>member(r));
+          if(overview.events)state.events=array(overview.events).map(event);
+          if(overview.orders)state.orders=array(overview.orders).map(order);
+          if(overview.registrations)state.tickets=array(overview.registrations).map(r=>ticket(r,state.profile));
           if(overview.menu) state.menu=array(overview.menu).map(menuItem);
           for(const key of Object.keys(CONTENT)) if(overview[key]) state[key]=array(overview[key]).map(r=>content(key,r));
           if(overview.requests){state.messages=array(overview.requests).filter(r=>r.type!=='volunteer');state.volunteers=array(overview.requests).filter(r=>r.type==='volunteer');}
@@ -181,7 +186,14 @@ export function createLiveStore(api = firebase) {
   async function saveRecord(collection, record) {
     requireUser();
     const old=array(state[collection]).find(r=>r.id===record.id) || {}, data={...old,...record};
-    if(collection==='members') {if(data.id===state.profile?.id)return saveProfile(data);return mutate(()=>api.approveMembership(data.id,data.status));}
+    if(collection==='members') {
+      if(record.status!==undefined){
+        if(!state.roles.some(role=>['admin','super_admin'].includes(role)))fail('Administrator access is required to review membership.');
+        return mutate(()=>api.approveMembership(data.id,record.status));
+      }
+      if(data.id===state.profile?.id)return saveProfile(data);
+      fail('Use a membership review action to update another member.');
+    }
     if(collection==='events') {
       const startsAt=new Date(`${data.date}T${data.time || '00:00'}:00+09:00`).toISOString();
       const endDate=data.endDate || data.date, endTime=data.endTime;

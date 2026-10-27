@@ -9,7 +9,7 @@ const context={esc,icon:()=>'',render(){},closeModal(){},toast(){}};
 test('services resolve nested operational routes and reject unrelated content tabs',()=>{
  assert.equal(serviceTab('/admin/services/members'),'members');
  assert.equal(serviceTab('/admin/services/orders?view=active'),'orders');
- assert.equal(serviceTab('/admin/services'),'overview');
+ assert.equal(serviceTab('/admin/services'),'members');
  assert.equal(serviceTab('/admin/services/gallery'),'overview');
 });
 test('privileged service view requires authenticated claims and a current matching assignment',()=>{
@@ -67,4 +67,27 @@ test('all connected operational tabs render using real fixture records',()=>{
   orders:[{id:'o1',eventId:'e1',vendorId:'v1',total:700,status:'confirmed',paymentStatus:'due',items:[{name:'Lunch',qty:1}]}],
   vendors:[{id:'v1',eventId:'e1',name:'Food stall',status:'published'}],menu:[{id:'d1',eventId:'e1',vendorId:'v1',name:'Lunch',price:700,stock:20}]};
  for(const tab of SERVICE_TABS){const html=renderAdmin({...context,store:{getState:()=>state},adminEmbedded:true,adminTab:tab,adminBase:'/admin/services',adminTabs:SERVICE_TABS});assert.match(html,/class="member-operations"/,tab);assert.match(html,new RegExp('href="/admin/services/'+tab+'"'),tab);assert.doesNotMatch(html,/<One>/,tab);}
+});
+
+
+test('opening the authenticated Member services route renders its content without crashing',async()=>{
+ const originalLocation=globalThis.location,originalFetch=globalThis.fetch;
+ globalThis.location={pathname:'/admin/services/members',search:'',hash:''};
+ globalThis.fetch=async url=>new Response(JSON.stringify(String(url).endsWith('/session')?{user:{role:'owner'}}:String(url).endsWith('/team')?{accounts:[]}:{user:{role:'owner'},records:[],history:[],settings:{}}),{status:200});
+ let source=readFileSync(new URL('../public/js/standalone-admin.js',import.meta.url),'utf8');
+ source=source.replace(/from '(\.\/[^']+)'/g,(_,path)=>`from '${new URL('../public/js/'+path.slice(2),import.meta.url).href}'`);
+ try{
+  const ui=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+  await ui.initializeStandaloneAdmin();
+  const html=ui.renderStandaloneAdmin({...context,renderMemberServices:()=>'<section>Connected member review</section>'});
+  assert.match(html,/Connected member review/);assert.match(html,/href="\/admin\/services\/members"/);
+ }finally{globalThis.location=originalLocation;globalThis.fetch=originalFetch;}
+});
+
+test('unrelated failed collections do not hide pending members, but a member-query failure does',()=>{
+ const s={...base(),members:[{id:'pending1',name:'Pending person',status:'pending',directoryVisible:true}],dataErrors:{'admin:orders':'Orders unavailable'}};
+ const ctx={...context,store:{getState:()=>s},adminEmbedded:true,adminTab:'members',adminBase:'/admin/services',adminTabs:SERVICE_TABS};
+ let html=renderAdmin(ctx);assert.match(html,/Pending person/);assert.match(html,/data-admin-action="approve-member"/);assert.match(html,/Awaiting approval/);
+ s.dataErrors['admin:members']='Member access denied';html=renderAdmin(ctx);
+ assert.match(html,/Member access denied/);assert.doesNotMatch(html,/Pending person|No matching members/);
 });

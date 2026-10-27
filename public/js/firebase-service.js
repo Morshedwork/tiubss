@@ -187,7 +187,18 @@ export async function getMyProfile() {
 }
 export const saveMyProfile = patch => call('saveProfile', patch);
 export const approveMembership = (uid, status) => call('approveMembership', { uid, status });
-export const getPublicProfiles = () => list('publicProfiles');
+// A directory and its review queue must not silently stop at the first 100 people.
+async function listProfiles(collection) {
+  await ready(); const f=sdk.firestore, rows=[]; let cursor;
+  for(let page=0;page<=20;page++) {
+    const snapshot=await f.getDocs(f.query(f.collection(db,collection),...(cursor?[f.startAfter(cursor)]:[]),f.limit(100)));
+    rows.push(...snapshot.docs.map(doc=>({...normalize(doc.data()),id:doc.id})));
+    if(rows.length>2000)throw error('firebase/directory-limit','The member directory exceeds 2,000 profiles. Contact the administrator to enable a larger directory. No partial list is shown.');
+    if(snapshot.docs.length<100)return rows;
+    cursor=snapshot.docs[snapshot.docs.length-1];
+  }
+}
+export const getPublicProfiles = () => listProfiles('publicProfiles');
 export async function getEvents() { await ready(); const f = sdk.firestore; return list('events', [f.where('status', '==', 'published')], ['startsAt', 'asc']); }
 export const createEvent = data => call('saveEvent', data);
 export const registerForEvent = (eventId, requestId) => call('registerForEvent', { eventId, requestId });
@@ -221,8 +232,12 @@ export async function getAdminOverview() {
   await ready(true);
   if (!state.roles.some(role => ['super_admin', 'admin'].includes(role))) throw error('permission-denied', 'Administrator access is required.');
   const names = { members:'users', events:'events', orders:'foodOrders', registrations:'registrations', menu:'menuItems', vendors:'vendors', gallery:'photos', reels:'reels', news:'newsPosts', committee:'committeeTerms', partners:'partnerOrganizations', requests:'communityRequests', posts:'communityPosts', audits:'auditLogs', settings:'websiteContent' };
-  const entries = await Promise.all(Object.entries(names).map(async ([key, collection]) => [key, await list(collection)]));
-  return { ...Object.fromEntries(entries), limitedTo: 100 };
+  const entries = await Promise.all(Object.entries(names).map(async ([key, collection]) => {
+    try{return {key,rows:await (key==='members'?listProfiles(collection):list(collection))};}
+    catch(cause){return {key,error:friendlyError(cause)};}
+  }));
+  return {...Object.fromEntries(entries.filter(entry=>!entry.error).map(entry=>[entry.key,entry.rows])),
+    errors:Object.fromEntries(entries.filter(entry=>entry.error).map(entry=>[entry.key,entry.error])),limitedTo:100};
 }
 export const saveContent = (collection, id, data) => call('saveContent', { collection, id, data });
 export async function getContent(collection, {includeDrafts = false} = {}) { await ready(); return list(collection, includeDrafts ? [] : [sdk.firestore.where('status', '==', 'published')]); }
