@@ -28,13 +28,14 @@ export async function initFirebase() {
       await new Promise((resolve, reject) => {
         let first = true;
         authentication.onIdTokenChanged(auth, async user => {
+          const revision = ++authRevision;
           try {
-            const revision = ++authRevision;
             const roles = user ? await staffRoles(user) : [];
             if (revision !== authRevision || auth.currentUser?.uid !== user?.uid) return;
             state = { ...state, configured: true, user, roles, error: null, loading: false };
             emit(); if (first) { first = false; resolve(); }
           } catch (cause) {
+            if (revision !== authRevision || auth.currentUser?.uid !== user?.uid) return;
             state = { ...state, configured: true, user: null, roles: [], error: friendlyError(cause), loading: false }; emit();
             if (first) { first = false; reject(cause); }
           }

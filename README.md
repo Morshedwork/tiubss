@@ -1,5 +1,15 @@
 # TIU BSS
 
+## Current architecture and code fixes — 28 October 2026
+
+The current website uses Firebase Authentication for member sign-in. Community records, profiles, events, registrations, food operations and staff assignments use the existing Sites D1 backend; images use its R2 storage. The separate Admin session manages operations independently of Firebase role claims. The Firebase project remains on Spark.
+
+The Firebase Functions/Firestore/Storage implementation under `firebase/` is retained as an optional backend. Its activation checklist and preflight do not describe a requirement for the current website. Earlier architecture notes below are historical and are superseded by this section.
+
+This code-only update hardens account-switch handling and private UI cleanup, limits delegated record reads to eligible staff, and rejects conflicting request retries. It also retains safety fixes and Windows preflight support for the optional Firebase backend. No billing, runtime configuration, or production deployment is changed by this update.
+
+See [the fix and verification notes](FIXES-2026-10-28.md).
+
 ## Firebase admin integration — 27 October 2026
 
 Member services at `/admin/services` now connects an assigned Firebase organiser account inside the independent admin workspace. Members, events, food menus/counters/orders, community moderation, inbox, reports and team assignments use the existing Firestore adapter and protected callables. The standalone Admin login and website CMS stay separate. Private records require Firebase role claims and a matching current staff assignment; failed privileged reads are displayed as errors. Legacy operational `/admin/*` links redirect to the corresponding service tab.

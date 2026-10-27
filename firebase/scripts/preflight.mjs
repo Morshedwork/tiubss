@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { spawnSync } from 'node:child_process';
+import { resolveFirebaseCli, appCheckDiagnostics } from './preflight-support.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const projectId = 'tiu-bss';
@@ -14,9 +15,10 @@ if (args.some(arg => !['--remote', '--help'].includes(arg))) {
   process.exit(1);
 }
 if (args.includes('--help')) {
-  console.log('Checks local Firebase configuration and built files. --remote additionally runs existing Firebase CLI read-only account/project/function checks. No packages are installed and no cloud settings are changed.');
+  console.log('Checks the optional Firebase Functions/Storage backend configuration and built files. The current website uses Sites D1/R2 and only Firebase member sign-in. --remote additionally runs existing Firebase CLI read-only account/project/function checks. No packages are installed and no cloud settings are changed.');
   process.exit(0);
 }
+console.log('Optional Firebase backend check: the current website uses Sites D1/R2 for data and images; these deployment checks are not its activation requirements.');
 let blockers = 0;
 const report = (status, message) => {
   console.log(`${status}: ${message}`);
@@ -37,9 +39,9 @@ try {
   report(config.projectId === projectId ? 'OK' : 'BLOCKED', `Web configuration must target ${projectId}${config.projectId === projectId ? ' (confirmed).' : '.'}`);
   const complete = ['apiKey', 'authDomain', 'appId', 'storageBucket'].every(key => typeof config[key] === 'string' && config[key].trim());
   report(complete ? 'OK' : 'BLOCKED', complete ? 'Required public Firebase web identifiers are present (values withheld).' : 'Required Firebase web identifiers are missing.');
-  const key = web.BSS_FIREBASE_APP_CHECK_KEY;
-  const hasAppCheck = typeof key === 'string' && key.trim().length > 10 && !/YOUR_|PLACEHOLDER|REPLACE/i.test(key);
-  report(hasAppCheck ? 'OK' : 'BLOCKED', hasAppCheck ? 'An App Check public site key is set; its live registration still needs verification.' : 'Set the registered App Check public site key (matching the configured provider) in public/firebase-config.js. Callable writes remain blocked.');
+  const appCheck = appCheckDiagnostics(web);
+  report(appCheck.supported ? 'OK' : 'BLOCKED', appCheck.supported ? 'App Check provider: '+appCheck.label+'.' : 'The configured App Check provider is unsupported. Use recaptcha-enterprise or recaptcha-v3.');
+  report(appCheck.keyPresent ? 'OK' : 'BLOCKED', appCheck.keyPresent ? 'An App Check public site key is set; its live registration still needs verification.' : 'Set the registered App Check public site key (matching the configured provider) in public/firebase-config.js. Callable writes remain blocked.');
 } catch {
   report('BLOCKED', 'Could not read the public Firebase web configuration.');
 }
@@ -74,7 +76,11 @@ if (existsSync(resolve(root, '.firebaserc'))) {
 }
 
 const cliEnv = { ...process.env, CI: '1', FIREBASE_CLI_DISABLE_UPDATE_CHECK: 'true' };
-const cli = command => spawnSync('firebase', command, { cwd: root, encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024, env: cliEnv });
+const cliResolution = resolveFirebaseCli({projectRoot:resolve(root, '..'),env:cliEnv});
+if (cliResolution?.error) report('CHECK', cliResolution.error);
+const cli = command => cliResolution?.command
+  ? spawnSync(cliResolution.command, [...cliResolution.args, ...command], { cwd: root, encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024, env: cliEnv, windowsHide:true })
+  : {error:new Error('Firebase CLI unavailable'),status:null};
 const version = cli(['--version']);
 const cliAvailable = !version.error && version.status === 0;
 report(cliAvailable ? 'OK' : 'CHECK', cliAvailable ? 'An existing Firebase CLI is available.' : 'Firebase CLI is not available here; use an authorized Firebase integration or install the CLI in your own deployment environment.');
@@ -106,7 +112,7 @@ if (args.includes('--remote')) {
 
 console.log('\nConsole checks still required:');
 console.log('- Authentication: Email/Password and Google enabled. Authorized domains: www.tiubss.com, tiubss.com, tiu-bss.firebaseapp.com, and the active Sites hostname when used.');
-console.log('- App Check: this web app registered for reCAPTCHA v3 with the same website hostnames; public key matches the local configuration.');
+console.log('- '+appCheckDiagnostics(web).consoleInstruction);
 console.log('- Billing/Storage/Functions: owner confirms Blaze activation and Storage provisioning; never change billing as part of this check.');
 console.log('- Firestore: deployed rules and enabled indexes; organizer custom claims and matching staffAssignments document.');
 console.log('- Verify sign-in, private profile persistence, organizer access and one test registration/order with owned test accounts.');

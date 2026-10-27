@@ -253,13 +253,17 @@ export const registerForEvent = callable(async req => {
   return db.runTransaction(async tx => {
     const eventRef = db.doc(`events/${eventId}`); const ref = db.doc(`registrations/${registrationId}`);
     const [eventSnap, old, profile] = await Promise.all([tx.get(eventRef), tx.get(ref), tx.get(db.doc(`users/${userId}`))]);
+    const member = profile.data();
+    if (member?.membershipStatus === 'suspended') fail('permission-denied', 'Your membership is suspended.');
+    // Match the existing profile-first policy without adding approval or
+    // email-verification requirements for saved legacy members.
+    if (!profile.exists || typeof member?.name !== 'string' || !member.name.trim()) fail('failed-precondition', 'Complete your member profile before registering for an event.');
     if (old.exists && (old.data()?.status !== 'cancelled' || old.data()?.requestId === requestId)) return { id: registrationId, ...old.data() };
     const event = eventSnap.data();
     if (!event || event.status !== 'published') fail('not-found', 'This event is not open.');
     if (event!.ticketPriceJPY !== 0) fail('failed-precondition', 'Paid admission is not configured.');
     if (event!.registrationClosesAt.toMillis() <= Date.now()) fail('failed-precondition', 'Registration is closed.');
     if ((event!.registeredCount || 0) >= event!.capacity) fail('resource-exhausted', 'This event is full.');
-    if (profile.data()?.membershipStatus === 'suspended') fail('permission-denied', 'Your membership is suspended.');
     const registration = { uid: userId, eventId, eventTitle: event!.title, requestId, ticketToken, status: 'confirmed', checkedIn: false, createdAt: now(), priceJPY: 0 };
     tx.set(ref, registration); tx.update(eventRef, { registeredCount: FieldValue.increment(1) });
     audit(tx, userId, 'registration.create', registrationId);
@@ -517,6 +521,7 @@ export const assignStaff = callable(async req => {
   uid(req);
   if (!(await currentAccess(req)).roles.includes('super_admin')) fail('permission-denied', 'Only a super administrator can assign roles.');
   const target = id(req.data.uid);
+  if (target === uid(req)) fail('failed-precondition', 'Your own administrator access cannot be replaced from the staff form. Use the trusted owner CLI.');
   if (!Array.isArray(req.data.roles) || req.data.roles.some((r: unknown) => !ROLES.includes(String(r)))) fail('invalid-argument', 'Invalid roles.');
   if (req.data.roles.includes('super_admin')) fail('failed-precondition', 'Super administrator promotion must use the owner CLI.');
   const cleanIds = (list: unknown, name: string) => {
@@ -524,8 +529,11 @@ export const assignStaff = callable(async req => {
     return [...new Set(list.map(v => id(v, name)))];
   };
   const eventIds = cleanIds(req.data.eventIds || [], 'event assignments'); const vendorIds = cleanIds(req.data.vendorIds || [], 'vendor assignments');
-  // Remove claims first: an interrupted scope update never expands prior privileges.
-  const user = await getAuth().getUser(target);
+  const [user, assignment] = await Promise.all([getAuth().getUser(target), db.doc(`staffAssignments/${target}`).get()]);
+  const claimRoles = Array.isArray(user.customClaims?.roles) ? user.customClaims.roles : [];
+  const assignedRoles = Array.isArray(assignment.data()?.roles) ? assignment.data()!.roles : [];
+  if (claimRoles.includes('super_admin') || assignedRoles.includes('super_admin')) fail('failed-precondition', 'Super administrator access must be changed using the trusted owner CLI.');
+  // Remove claims before replacing an ordinary staff assignment.
   await getAuth().setCustomUserClaims(target, { ...user.customClaims, roles: ['member'] });
   await db.doc(`staffAssignments/${target}`).set({ eventIds, vendorIds, roles: req.data.roles, updatedAt: now(), updatedBy: uid(req) });
   await getAuth().setCustomUserClaims(target, { ...user.customClaims, roles: req.data.roles });
@@ -607,6 +615,11 @@ export const moderatePost = callable(async req => {
   });
   return { ok: true };
 });
+function communityRequestFingerprint(data: Data): string {
+  // Sender names and recipient display names may change between retries;
+  // compare only the normalized content and destination the sender submitted.
+  return hash(JSON.stringify(['type', 'toUserId', 'subject', 'interest', 'message'].map(field => String(data[field] ?? '').trim())));
+}
 export const submitCommunityRequest = callable(async req => {
   const userId = uid(req); await rateLimit(userId, 'community.request', 5);
   const type = str(req.data.type || req.data.kind, 'request type', 30);
@@ -632,8 +645,20 @@ export const submitCommunityRequest = callable(async req => {
     message: str(req.data.message || '', 'message', 3000),
     status: 'submitted', createdAt: now(), updatedAt: now()
   };
-  await db.runTransaction(async tx => { const old = await tx.get(ref); if (!old.exists) tx.create(ref, data); });
-  return { id: ref.id, status: 'submitted' };
+  const requestFingerprint = communityRequestFingerprint(data);
+  return db.runTransaction(async tx => {
+    const old = await tx.get(ref);
+    if (old.exists) {
+      const saved = old.data()!;
+      // Older records predate fingerprints; derive the same comparison from
+      // their persisted fields without rewriting the original request.
+      const previousFingerprint = saved.requestFingerprint || communityRequestFingerprint(saved);
+      if (previousFingerprint !== requestFingerprint) fail('already-exists', 'This request ID was used for a different message. Start a new request.');
+      return { id: ref.id, status: saved.status || 'submitted' };
+    }
+    tx.create(ref, { ...data, requestFingerprint });
+    return { id: ref.id, status: data.status };
+  });
 });
 export const updateCommunityRequest = callable(async req => {
   await authorize(req, []);

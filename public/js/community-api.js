@@ -3,8 +3,15 @@ export function createCommunityAPI({admin=false,token=async()=>'',user=()=>null}
  const pending=new Map();
  async function request(path,options={}){
   const privateRequest=path!=='/api/community/public'&&path!=='/api/community/health'&&path!=='/api/site-content',identity=privateRequest?user()?.uid:null;
+  if(privateRequest&&!identity)throw new Error(admin?'Sign in to your admin workspace.':'Please sign in to continue.');
   const headers={...options.headers};
-  if(!admin&&path!=='/api/community/public'&&path!=='/api/community/health'&&path!=='/api/site-content')headers.Authorization='Bearer '+await token();
+  if(!admin&&privateRequest){
+   const accessToken=await token();
+   // A token refresh can outlive the account that started this request. Check
+   // before sending private drafts, not only after the server has changed data.
+   if(identity!==user()?.uid)throw new Error('Your account changed. Please retry from your dashboard.');
+   headers.Authorization='Bearer '+accessToken;
+  }
   if(options.method&&options.method!=='GET')headers[admin?'X-BSS-Admin':'X-BSS-Member']='1';
   const response=await fetch(path,{...options,headers,credentials:admin?'same-origin':'omit',cache:'no-store'});
   let body;try{body=await response.json();}catch{throw new Error('The website service could not respond. Please retry.');}

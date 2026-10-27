@@ -53,7 +53,25 @@ document.addEventListener('keydown',e=>{if(!$('#modal-root').children.length)ret
 installRouter(()=>{closeModal();render();window.scrollTo(0,0);$('#main').focus({preventScroll:true});},{scope:path=>!path.startsWith('/admin')});
 
 window.addEventListener('offline',()=>toast('You’re offline. Reconnect to sign in or save changes.'));
-store.subscribe(()=>{const busy=document.querySelector('[data-auth-busy="true"],form[data-auth-dirty="true"],form[data-busy="true"]');const active=document.activeElement;const editing=active?.closest('#app form')&&['INPUT','TEXTAREA','SELECT'].includes(active.tagName);if(busy||editing){$('#site-header').innerHTML=header();return;}render();});
+function sessionIdentity(snapshot) {
+ const userId=snapshot.auth?.user?.uid || null;
+ return {userId,roles:[...(snapshot.roles || snapshot.auth?.roles || [])].sort().join(',')};
+}
+let displayedSession=sessionIdentity(store.getState());
+store.subscribe(snapshot=>{
+ const nextSession=sessionIdentity(snapshot || store.getState());
+ const departedAccount=displayedSession.userId && displayedSession.userId!==nextSession.userId;
+ const changedPrivileges=displayedSession.userId===nextSession.userId && displayedSession.roles!==nextSession.roles;
+ displayedSession=nextSession;
+ // A cross-tab sign-out or account switch must remove the previous account's
+ // private form and dialogs, even when an edit or request was in progress.
+ if(departedAccount || changedPrivileges){closeModal();render();return;}
+ const busy=document.querySelector('[data-auth-busy="true"],form[data-auth-dirty="true"],form[data-busy="true"]');
+ const active=document.activeElement;
+ const editing=active?.closest('#app form')&&['INPUT','TEXTAREA','SELECT'].includes(active.tagName);
+ if(busy||editing){$('#site-header').innerHTML=header();return;}
+ render();
+});
 subscribeStandaloneAdmin(()=>{if(currentRoute().startsWith('/admin'))render();});
 if(currentRoute().startsWith('/admin')){location.replace(currentRoute());}else{
 render();

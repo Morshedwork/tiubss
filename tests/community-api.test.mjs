@@ -1,11 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCommunityAPI} from '../public/js/community-api.js';
-import {createLiveStore} from '../public/js/live-store.js';
-import * as operations from '../public/js/operations-service.js';
-import {fixture} from './operations-fixture.mjs';
-import {handleAdminAPI} from '../server/admin.mjs';
-import {communityAction} from '../server/community.mjs';
 test('member adapter shares parallel reads, sends identity and preserves failed responses',async()=>{
  const previous=globalThis.fetch,calls=[];let rejected=false;
  globalThis.fetch=async(path,options)=>{calls.push({path,options});if(rejected)return new Response(JSON.stringify({error:'Service unavailable'}),{status:503});return new Response(JSON.stringify(path.endsWith('/public')?{members:Array.from({length:150},(_,i)=>({id:'m'+i})),events:[],vendors:[],menu:[],posts:[]}:path.endsWith('/me')?{profile:{id:'member'},orders:[],registrations:[],requests:[],assignment:{roles:[]}}:{ok:true}));};
@@ -16,6 +11,7 @@ test('member adapter shares parallel reads, sends identity and preserves failed 
  }finally{globalThis.fetch=previous;}
 });
 test('independent admin adapter and live store persist the event-stall-menu flow with no member sign-in',async()=>{
+ const [{createLiveStore},operations,{fixture},{handleAdminAPI},{communityAction}]=await Promise.all([import('../public/js/live-store.js'),import('../public/js/operations-service.js'),import('./operations-fixture.mjs'),import('../server/admin.mjs'),import('../server/community.mjs')]);
  const f=fixture(),cookie=await f.login(),prior=globalThis.fetch;
  globalThis.fetch=async(path,options={})=>handleAdminAPI(new Request('https://bss.test'+path,{...options,headers:{...options.headers,Cookie:cookie,...(options.method?{Origin:'https://bss.test'}:{})}}),f.env);
  const store=createLiveStore(operations);
@@ -34,4 +30,51 @@ test('an in-flight private read is never shared with a different account',async(
  const prior=globalThis.fetch;let active={uid:'alice'},resolveFirst;
  globalThis.fetch=async(path,options)=>{const identity=options.headers.Authorization;if(identity==='Bearer alice')return new Promise(resolve=>{resolveFirst=()=>resolve(new Response(JSON.stringify({profile:{id:'alice'}})));});return new Response(JSON.stringify({profile:{id:'bob'}}));};
  try{const api=createCommunityAPI({token:async()=>active.uid,user:()=>active});const first=api.getMyProfile();await new Promise(resolve=>setImmediate(resolve));active={uid:'bob'};const second=await api.getMyProfile();assert.equal(second.id,'bob');resolveFirst();await assert.rejects(first,/account changed/);}finally{globalThis.fetch=prior;}
+});
+
+
+test('a private write is not sent when the account changes while its token is pending',async()=>{
+ const prior=globalThis.fetch;let active={uid:'alice'},resolveToken;const calls=[];
+ globalThis.fetch=async(path,options)=>{calls.push({path,options});return new Response(JSON.stringify({ok:true}));};
+ try{
+  const api=createCommunityAPI({user:()=>active,token:()=>new Promise(resolve=>{resolveToken=resolve;})});
+  const pending=api.saveMyProfile({name:'Alice private draft'});
+  active={uid:'bob'};resolveToken('bob-token');
+  await assert.rejects(pending,/account changed/);assert.equal(calls.length,0);
+ }finally{globalThis.fetch=prior;}
+});
+
+test('a private read is not sent after signout while its token is pending',async()=>{
+ const prior=globalThis.fetch;let active={uid:'alice'},resolveToken;let calls=0;
+ globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({profile:{id:'alice'}}));};
+ try{
+  const api=createCommunityAPI({user:()=>active,token:()=>new Promise(resolve=>{resolveToken=resolve;})});
+  const pending=api.getMyProfile();active=null;resolveToken('alice-token');
+  await assert.rejects(pending,/account changed/);assert.equal(calls,0);
+ }finally{globalThis.fetch=prior;}
+});
+
+test('signed-out private reads and writes fail before token retrieval or network access',async()=>{
+ const prior=globalThis.fetch;let calls=0,tokens=0;
+ globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({members:[]}));};
+ try{
+  const api=createCommunityAPI({user:()=>null,token:async()=>{tokens++;return 'stale-token';}});
+  await assert.rejects(api.getMyProfile(),/sign in/i);
+  await assert.rejects(api.saveMyProfile({name:'Private draft'}),/sign in/i);
+  assert.equal(tokens,0);assert.equal(calls,0);
+  assert.deepEqual(await api.getPublicProfiles(),[]);assert.equal(calls,1);
+ }finally{globalThis.fetch=prior;}
+});
+
+test('admin requests use the independent session and reject late reads after an admin switch',async()=>{
+ const prior=globalThis.fetch;let active={uid:'admin:owner'},finish;const calls=[];
+ globalThis.fetch=async(path,options)=>{calls.push({path,options});if(path==='/api/admin/operations')return new Promise(resolve=>{finish=()=>resolve(new Response(JSON.stringify({orders:[]})));});return new Response(JSON.stringify({ok:true}));};
+ try{
+  const api=createCommunityAPI({admin:true,user:()=>active,token:async()=>{throw new Error('Member token must not be requested');}});
+  await api.assignStaff('member',['checkin_staff'],['event'],[]);
+  assert.equal(calls[0].options.credentials,'same-origin');assert.equal(calls[0].options.headers['X-BSS-Admin'],'1');assert.equal(calls[0].options.headers.Authorization,undefined);
+  const pending=api.getAdminOverview();active={uid:'admin:other'};finish();
+  await assert.rejects(pending,/account changed/);
+  active=null;const count=calls.length;await assert.rejects(api.getAdminOverview(),/admin workspace/);assert.equal(calls.length,count);
+ }finally{globalThis.fetch=prior;}
 });

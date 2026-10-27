@@ -59,7 +59,14 @@ function expire(state){for(const o of state.orders)if(o.status==='confirmed'&&o.
 const activeOrder=o=>!['cancelled','expired'].includes(o.status);
 const eventOpen=(state,food=false)=>{const e=state.event;if(!e||e.status!=='published')fail(409,'This event is not open.');if(Date.parse(e.endsAt)<=Date.now())fail(409,'This event has ended.');if(food&&(!e.foodEnabled||Date.parse(e.foodClosesAt)<=Date.now()))fail(409,'Food ordering is closed.');return e;};
 const checkAdmin=actor=>{if(!actor.admin)fail(403,'Sign in to the admin workspace to perform this action.');};
-async function requireProfile(env,actor){const p=await member(env,actor.uid);if(!p)fail(409,'Finish and save your member profile first.');if(['suspended','rejected'].includes(p.membershipStatus))fail(403,'Your membership is not active. Contact the society team.');return p;}
+const eligibleProfile=profile=>Boolean(profile)&&!['suspended','rejected'].includes(profile.membershipStatus);
+async function requireProfile(env,actor){const p=await member(env,actor.uid);if(!p)fail(409,'Finish and save your member profile first.');if(!eligibleProfile(p))fail(403,'Your membership is not active. Contact the society team.');return p;}
+function communityRequestData(data){
+ const type=text(data.type,'request type',30,true);if(!['connection','mentorship','volunteer','partners','contact'].includes(type))fail(400,'Invalid request type.');
+ const recipient=text(data.toUserId,'recipient',128);
+ return {type,toUserId:recipient?key(recipient):'',subject:text(data.subject,'subject',200),message:text(data.message,'message',2000,true),interest:text(data.interest,'interest',200)};
+}
+const communityRequestContent=request=>JSON.stringify(['type','toUserId','subject','interest','message'].map(field=>String(request[field]??'').trim()));
 async function locate(env,kind,reference){for(const s of await eventStates(env))if(s[kind].some(r=>r.id===reference||r.ticketToken===reference||r.pickupToken===reference||r.orderNumber===reference))return s.event.id;fail(404,'Ticket or order not found.');}
 export async function communityPublic(env){
  const [states,rows,social]=await Promise.all([eventStates(env),env.DB.prepare("SELECT id,status,data FROM community_members WHERE status='approved' AND directory_opt_in=1").all(),ledger(env,'social','social')]);
@@ -69,7 +76,9 @@ export async function communityPublic(env){
 export async function communityPrivate(env,actor){
  const [states,social,profile]=await Promise.all([eventStates(env),ledger(env,'social','social'),member(env,actor.uid)]);for(const s of states)expire(s);
  if(actor.admin){const rows=await env.DB.prepare('SELECT * FROM community_members ORDER BY updated_at DESC').all();return {members:(rows.results||[]).map(r=>({...parse(r),uid:r.id,id:r.id,membershipStatus:r.status})),events:states.map(s=>({...s.event,registeredCount:s.registrations.filter(t=>t.status!=='cancelled').length})),menu:states.flatMap(s=>s.menu),vendors:states.flatMap(s=>s.vendors),orders:states.flatMap(s=>s.orders),registrations:states.flatMap(s=>s.registrations),posts:social.value.posts,requests:social.value.requests,audits:[...states.flatMap(s=>s.audits),...social.value.audits].sort((a,b)=>b.at.localeCompare(a.at)),assignments:social.value.assignments};}
- const assignment=social.value.assignments[actor.uid]||{roles:[],eventIds:[],vendorIds:[]};
+ // Delegated reads require the same current membership as staff mutations.
+ // Personal records remain available even after membership access is removed.
+ const assignment=(eligibleProfile(profile)&&social.value.assignments[actor.uid])||{roles:[],eventIds:[],vendorIds:[]};
  const assignedOrder=o=>assignment.eventIds.includes(o.eventId)&&assignment.vendorIds.includes(o.vendorId)&&assignment.roles.some(r=>['food_vendor_manager','kitchen_staff','pickup_staff'].includes(r));
  return {profile,orders:states.flatMap(s=>s.orders).filter(o=>o.uid===actor.uid||assignedOrder(o)),registrations:states.flatMap(s=>s.registrations).filter(t=>t.uid===actor.uid||assignment.eventIds.includes(t.eventId)&&assignment.roles.some(r=>['event_manager','checkin_staff'].includes(r))),requests:social.value.requests.filter(r=>r.uid===actor.uid||r.toUserId===actor.uid),assignment};
 }
@@ -133,11 +142,18 @@ export async function communityAction(env,actor,action,data){
  if(['createCommunityPost','deleteCommunityPost','togglePostHeart','replyToPost','moderatePost','submitCommunityRequest','updateCommunityRequest','assignStaff'].includes(action)){
   const profile=actor.admin?null:await requireProfile(env,actor);
   if(action==='assignStaff'){checkAdmin(actor);if(!actor.owner)fail(403,'Only the workspace owner can assign staff.');if(!await member(env,key(data.uid)))fail(404,'This member must save a profile before receiving staff access.');const states=await eventStates(env);for(const eventId of data.eventIds||[])if(!states.some(s=>s.event.id===eventId))fail(400,'An assigned event does not exist.');for(const vendorId of data.vendorIds||[])if(!states.some(s=>(data.eventIds||[]).includes(s.event.id)&&s.vendors.some(v=>v.id===vendorId)))fail(400,'Choose stalls in the assigned events.');}
-  if(action==='submitCommunityRequest'&&['connection','mentorship'].includes(data.type)){const recipient=await member(env,key(data.toUserId));if(!recipient||!publicProfile(recipient))fail(404,'This member is not accepting directory requests.');if(data.toUserId===actor.uid)fail(400,'Choose another community member.');}
+  const requestData=action==='submitCommunityRequest'?communityRequestData(data):null;
   if(['createCommunityPost','replyToPost'].includes(action)&&!actor.emailVerified)fail(403,'Verify your email before posting to the community.');
-  return updateLedger(env,'social','social',s=>{
+  return updateLedger(env,'social','social',async s=>{
    if(action==='assignStaff'){checkAdmin(actor);if(!actor.owner)fail(403,'Only the workspace owner can assign staff.');const uid=key(data.uid);const roles=strings(data.roles,'staff roles',5,40);if(roles.some(r=>!['event_manager','checkin_staff','food_vendor_manager','kitchen_staff','pickup_staff'].includes(r)))fail(400,'Use invited admin accounts for administrator access.');s.assignments[uid]={roles,eventIds:strings(data.eventIds||[],'event references',30,128).map(v=>key(v)),vendorIds:strings(data.vendorIds||[],'stall references',30,128).map(v=>key(v))};note(s,actor,action,uid);return {ok:true};}
-   if(action==='submitCommunityRequest'){const requestId=key(data.requestId),existing=s.requests.find(r=>r.uid===actor.uid&&r.id===requestId);if(existing)return existing;if(!['connection','mentorship','volunteer','partners','contact'].includes(data.type))fail(400,'Invalid request type.');const r={id:requestId,uid:actor.uid,toUserId:data.toUserId?key(data.toUserId):'',name:profile.name,email:actor.email,type:data.type,subject:text(data.subject,'subject',200),message:text(data.message,'message',2000,true),interest:text(data.interest,'interest',200),status:'submitted',createdAt:iso()};s.requests.push(r);return r;}
+   if(action==='submitCommunityRequest'){
+    const requestId=key(data.requestId),existing=s.requests.find(r=>r.uid===actor.uid&&r.id===requestId);
+    if(existing){if(communityRequestContent(existing)!==communityRequestContent(requestData))fail(409,'This request reference was used for a different message. Start a new request.');return existing;}
+    // Compare persisted fields directly so legacy records need no migration.
+    // Recipient availability affects new requests, not retries of accepted ones.
+    if(['connection','mentorship'].includes(requestData.type)){const recipient=await member(env,key(requestData.toUserId));if(!recipient||!publicProfile(recipient))fail(404,'This member is not accepting directory requests.');if(requestData.toUserId===actor.uid)fail(400,'Choose another community member.');}
+    const r={id:requestId,uid:actor.uid,...requestData,name:profile.name,email:actor.email,status:'submitted',createdAt:iso()};s.requests.push(r);return r;
+   }
    if(action==='updateCommunityRequest'){checkAdmin(actor);const r=s.requests.find(r=>r.id===data.id);if(!r)fail(404,'Request not found.');if(!['submitted','pending','read','approved','rejected','closed'].includes(data.status))fail(400,'Invalid request status.');r.status=data.status;note(s,actor,action,r.id);return r;}
    if(action==='createCommunityPost'){if(!['introduction','question','moment','opportunity'].includes(data.category))fail(400,'Choose a note category.');const p={id:id(),uid:actor.uid,userId:actor.uid,name:profile.name,body:text(data.body,'note',600,true),category:data.category,status:'published',hearts:[],replies:[],createdAt:iso()};s.posts.push(p);return p;}
    const p=s.posts.find(p=>p.id===data.id);if(!p)fail(404,'Community note not found.');

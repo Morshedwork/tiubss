@@ -1,5 +1,7 @@
 # TIU BSS — Firebase backend
 
+> **Current runtime — 28 October 2026:** the website uses Firebase for member sign-in, Sites D1 for community data, and Sites R2 for image storage. The Functions, Firestore and Storage deployment instructions below describe the retained optional Firebase backend; they are not required to activate the current native website backend. Keep the existing Spark plan. See [current fix notes](../FIXES-2026-10-28.md).
+
 The site frontend now targets Firebase project `tiu-bss` using the supplied public web configuration. Member login/logout, profile data, community activity, registrations, food orders and content operations use the live adapter, without a local-demo fallback. Authentication is enabled and Firestore is provisioned; Storage billing, App Check and backend deployment are still required; the web configuration is not an administrator credential. No payment processor, outbound event email service or push notifications are connected.
 
 Current console status on 28 October 2026 (Japan time):
