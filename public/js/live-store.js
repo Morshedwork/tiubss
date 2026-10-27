@@ -74,10 +74,13 @@ export function createLiveStore(api = firebase) {
   }
   async function refresh() {
     if (pendingRefresh) return pendingRefresh;
-    const epoch = revision, userId = state.auth.user?.uid, administrator = state.roles.some(r=>['admin','super_admin'].includes(r));
-    const editor = administrator || state.roles.includes('content_editor');
     state.loading = true; emit();
     const promise = (async()=>{
+      // Retry initialization after a temporary CDN/network failure, rather than
+      // returning the same cached connection error until the page is reloaded.
+      if (!state.auth.configured) { await api.initFirebase(); setAuth(api.getAuthState()); }
+      const epoch = revision, userId = state.auth.user?.uid, administrator = state.roles.some(r=>['admin','super_admin'].includes(r));
+      const editor = administrator || state.roles.includes('content_editor');
       if (!state.auth.configured) { state.loading=false; state.dataErrors.connection=state.auth.error || 'Firebase could not connect. Check your connection and try again.'; emit(); return getState(); }
       const errors = {}, updates = {};
       const read = async (label, fn, apply) => { try { const result = await fn(); if (epoch === revision) apply(result); } catch(cause) { errors[label]=explain(cause); } };

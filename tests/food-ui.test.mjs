@@ -10,7 +10,7 @@ async function setup(overrides={}) {
   const prior={document:globalThis.document,location:globalThis.location,localStorage:globalThis.localStorage};
   const app={addEventListener(type,fn,options){listeners.set(type,fn);options?.signal?.addEventListener('abort',()=>{if(listeners.get(type)===fn)listeners.delete(type);});}};
   globalThis.document={getElementById(id){return id==='app'?app:null;},querySelector(){return null;}};
-  globalThis.location={hash:'#/events/festival/food'};
+  globalThis.location={pathname:'/events/festival/food',search:'',hash:''};
   globalThis.localStorage={getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v),removeItem:k=>memory.delete(k)};
   let modal=null;
   function parseButtons(html) {
@@ -30,7 +30,7 @@ async function setup(overrides={}) {
 test('food hub shows only open published food events and has a real ticket wallet link',async()=>{
   const f=await setup();try {
     f.s.events.push({...f.s.events[0],id:'closed',title:'Closed gathering',foodClosesAt:'2000-01-01T00:00:00Z'},{...f.s.events[0],id:'draft',title:'Draft gathering',status:'draft'},{...f.s.events[0],id:'no-food',title:'No food gathering',foodEnabled:false});
-    const html=f.module.renderFoodHub(f.ctx);assert.match(html,/Our gathering/);assert.doesNotMatch(html,/Closed gathering|Draft gathering|No food gathering/);assert.match(html,/href="#\/tickets"/);assert.match(html,/The rice stall/);
+    const html=f.module.renderFoodHub(f.ctx);assert.match(html,/Our gathering/);assert.doesNotMatch(html,/Closed gathering|Draft gathering|No food gathering/);assert.match(html,/href="\/tickets"/);assert.match(html,/The rice stall/);
     f.s.events=[];assert.match(f.module.renderFoodHub(f.ctx),/no food reservations open right now/);
   }finally{f.restore();}
 });

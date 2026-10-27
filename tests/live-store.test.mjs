@@ -71,3 +71,13 @@ test('private admin overview does not replace the public directory projection',a
   const initial=f.store.initialize();await initial;f.changeAuth({roles:['admin']});await f.store.refresh();
   assert.equal(f.store.getState().members[0].email,'private@example.org');assert.equal(f.store.getState().publicMembers[0].email,undefined);assert.equal(f.store.getState().publicMembers[0].name,'Public name');
 });
+
+test('Refresh reconnects after a failed Firebase initialization without reloading the page',async()=>{
+  let connected=false, attempts=0;
+  const auth=()=>({configured:connected,user:null,roles:[],error:connected?null:'Temporary network error'});
+  const api={subscribeAuth(fn){fn(auth());return()=>{};},async initFirebase(){attempts++;return auth();},getAuthState:auth,
+    async getPublicProfiles(){return[];},async getEvents(){return[{id:'event-live',startsAt:'2026-12-01T00:00:00Z'}];},async getContent(){return[];}};
+  const store=createLiveStore(api);await store.initialize();assert.equal(store.getState().auth.configured,false);assert.ok(store.getState().dataErrors.connection);
+  const beforeRetry=attempts;connected=true;await store.refresh();
+  assert.ok(attempts>beforeRetry);assert.equal(store.getState().auth.configured,true);assert.equal(store.getState().events[0].id,'event-live');assert.equal(store.getState().dataErrors.connection,undefined);
+});

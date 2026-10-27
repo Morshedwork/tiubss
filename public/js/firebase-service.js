@@ -64,7 +64,10 @@ export async function initFirebase() {
     }
     return getAuthState();
   })();
-  return initialization;
+  const result = await initialization;
+  // A transient SDK/network failure must not poison every Retry for this page.
+  if (!result.configured) initialization = null;
+  return result;
 }
 async function ready(requireUser = false) {
   await initFirebase();
@@ -88,10 +91,32 @@ function normalize(value) {
   if (Array.isArray(value)) return value.map(normalize);
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalize(item)]));
 }
-async function list(collection, constraints = []) {
+async function list(collection, constraints = [], order = null) {
   await ready(); const f = sdk.firestore;
-  const snapshots = await f.getDocs(f.query(f.collection(db, collection), ...constraints, f.limit(100)));
-  return snapshots.docs.map(doc => ({ id: doc.id, ...normalize(doc.data()) }));
+  const read = extra => f.getDocs(f.query(f.collection(db, collection), ...constraints, ...extra));
+  const rows = snapshot => snapshot.docs.map(doc => ({ ...normalize(doc.data()), id: doc.id }));
+  try {
+    return rows(await read([...(order ? [f.orderBy(...order)] : []), f.limit(100)]));
+  } catch (cause) {
+    // Keep every authorization filter. Only a missing composite index may fall
+    // back to a bounded scan; permission/network errors must remain errors.
+    if (!order || !['failed-precondition','firestore/failed-precondition'].includes(cause?.code) || !/index/i.test(cause?.message || '')) throw cause;
+    const found = []; let cursor;
+    for (let page = 0; page <= 20; page++) {
+      const snapshot = await read([...(cursor ? [f.startAfter(cursor)] : []), f.limit(100)]);
+      found.push(...rows(snapshot));
+      if (found.length > 2000) throw error('firebase/index-required', 'This collection needs its Firestore index before it can be displayed completely. Please ask the administrator to deploy the database indexes.');
+      if (snapshot.docs.length < 100) break;
+      cursor = snapshot.docs[snapshot.docs.length - 1];
+    }
+    const [field, direction] = order, sign = direction === 'desc' ? -1 : 1;
+    // Firestore orderBy excludes documents without the ordered field. Match its
+    // ordering and limit only after every matching page has been read.
+    return found.filter(row => row[field] != null).sort((a, b) => {
+      const comparison = a[field] < b[field] ? -1 : a[field] > b[field] ? 1 : a.id.localeCompare(b.id);
+      return comparison * sign;
+    }).slice(0, 100);
+  }
 }
 export async function signInWithGoogle() {
   await ready(); const provider = new sdk.authentication.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
@@ -162,7 +187,7 @@ export async function getMyProfile() {
 export const saveMyProfile = patch => call('saveProfile', patch);
 export const approveMembership = (uid, status) => call('approveMembership', { uid, status });
 export const getPublicProfiles = () => list('publicProfiles');
-export async function getEvents() { await ready(); const f = sdk.firestore; return list('events', [f.where('status', '==', 'published'), f.orderBy('startsAt', 'asc')]); }
+export async function getEvents() { await ready(); const f = sdk.firestore; return list('events', [f.where('status', '==', 'published')], ['startsAt', 'asc']); }
 export const createEvent = data => call('saveEvent', data);
 export const registerForEvent = (eventId, requestId) => call('registerForEvent', { eventId, requestId });
 export const cancelRegistration = registrationId => call('cancelRegistration', { registrationId });
@@ -173,7 +198,7 @@ export const placeFoodOrder = (eventId, items, requestId) => call('placeFoodOrde
 export const cancelFoodOrder = orderId => call('cancelFoodOrder', { orderId });
 export const lookupFoodOrder = data => call('lookupFoodOrder', data);
 export const advanceFoodOrder = (orderId, action, token, amountJPY, options={}) => call('advanceFoodOrder', { orderId, action, ...(token ? {token} : options.manual===true ? {manual:true} : {}), ...(amountJPY !== undefined ? { amountJPY } : {}) });
-export async function getMyRegistrations() { await ready(true); const f = sdk.firestore; return list('registrations', [f.where('uid', '==', state.user.uid), f.orderBy('createdAt', 'desc')]); }
+export async function getMyRegistrations() { await ready(true); const f = sdk.firestore; return list('registrations', [f.where('uid', '==', state.user.uid)], ['createdAt', 'desc']); }
 async function foodOrderFeed(constraints) {
   const f=sdk.firestore, active=[], collection=f.collection(db,'foodOrders');let cursor;
   // An old ready order must never disappear behind a busy stall's recent history.
@@ -190,7 +215,7 @@ async function foodOrderFeed(constraints) {
 export async function getMyOrders() { await ready(true); return foodOrderFeed([sdk.firestore.where('uid','==',state.user.uid)]); }
 export async function getStaffOrders(eventId,vendorId) { await ready(true); const f=sdk.firestore;return foodOrderFeed([f.where('eventId','==',eventId),f.where('vendorId','==',vendorId)]); }
 export async function getAdminFoodOrders() { await ready(true);if(!state.roles.some(r=>['admin','super_admin'].includes(r)))throw error('permission-denied','Administrator access is required.');return foodOrderFeed([]); }
-export async function getEventRegistrations(eventId) { await ready(true); const f = sdk.firestore; return list('registrations', [f.where('eventId', '==', eventId), f.orderBy('createdAt', 'desc')]); }
+export async function getEventRegistrations(eventId) { await ready(true); const f = sdk.firestore; return list('registrations', [f.where('eventId', '==', eventId)], ['createdAt', 'desc']); }
 export async function getAdminOverview() {
   await ready(true);
   if (!state.roles.some(role => ['super_admin', 'admin'].includes(role))) throw error('permission-denied', 'Administrator access is required.');
@@ -202,7 +227,7 @@ export const saveContent = (collection, id, data) => call('saveContent', { colle
 export async function getContent(collection, {includeDrafts = false} = {}) { await ready(); return list(collection, includeDrafts ? [] : [sdk.firestore.where('status', '==', 'published')]); }
 export const deleteContent = (collection, id) => call('deleteContent', { collection, id });
 export async function getStaffAssignment() { await ready(true); const doc = await sdk.firestore.getDoc(sdk.firestore.doc(db, 'staffAssignments', auth.currentUser.uid)); return doc.exists() ? normalize(doc.data()) : { roles: [], eventIds: [], vendorIds: [] }; }
-export async function getCommunityPosts() { await ready(); return list('communityPosts', [sdk.firestore.where('status', '==', 'published'), sdk.firestore.orderBy('createdAt', 'desc')]); }
+export async function getCommunityPosts() { await ready(); return list('communityPosts', [sdk.firestore.where('status', '==', 'published')], ['createdAt', 'desc']); }
 export const createCommunityPost = data => call('createCommunityPost', data);
 export const deleteCommunityPost = id => call('deleteCommunityPost', { id });
 export const togglePostHeart = id => call('togglePostHeart', { id });
@@ -210,8 +235,8 @@ export const replyToPost = (id, body) => call('replyToPost', { id, body });
 export const moderatePost = (id, status) => call('moderatePost', { id, status });
 export const submitCommunityRequest = data => call('submitCommunityRequest', data);
 export const updateCommunityRequest = (id, status) => call('updateCommunityRequest', {id,status});
-export async function getIncomingRequests() { await ready(true); return list('communityRequests', [sdk.firestore.where('toUserId', '==', auth.currentUser.uid), sdk.firestore.orderBy('createdAt', 'desc')]); }
-export async function getMyRequests() { await ready(true); return list('communityRequests', [sdk.firestore.where('uid', '==', auth.currentUser.uid), sdk.firestore.orderBy('createdAt', 'desc')]); }
+export async function getIncomingRequests() { await ready(true); return list('communityRequests', [sdk.firestore.where('toUserId', '==', auth.currentUser.uid)], ['createdAt', 'desc']); }
+export async function getMyRequests() { await ready(true); return list('communityRequests', [sdk.firestore.where('uid', '==', auth.currentUser.uid)], ['createdAt', 'desc']); }
 export const assignStaff = (uid, roles, eventIds = [], vendorIds = []) => call('assignStaff', { uid, roles, eventIds, vendorIds });
 export async function uploadImage(file, { kind = 'gallery', id = 'general' } = {}) {
   await ready(true);

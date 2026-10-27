@@ -1,6 +1,5 @@
 import html from '../site/index.html?raw';
-
-export const dynamic = 'force-dynamic';
-export function GET() {
-  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' } });
-}
+import {env} from 'cloudflare:workers';
+import {serveSite} from '../server/seo.mjs';
+export const dynamic='force-dynamic';
+export const GET=(request:Request)=>serveSite(request,env,html);

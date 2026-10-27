@@ -72,5 +72,5 @@ test('direct ticket modal refuses records belonging to another account before to
 test('wallet shows cash deadline, pickup location and live ordering links without displaying QR tokens',()=>{
   const html=renderTicketWallet(ctx());
   assert.match(html,/Pay before/);assert.match(html,/JST/);assert.match(html,/Courtyard · Stall 1/);
-  assert.match(html,/href="#\/food"/);assert.match(html,/Refresh my tickets/);assert.doesNotMatch(html,/pickup-secret/);
+  assert.match(html,/href="\/food"/);assert.match(html,/Refresh my tickets/);assert.doesNotMatch(html,/pickup-secret/);
 });

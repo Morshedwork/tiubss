@@ -116,7 +116,7 @@ export function mountMotion() {
   const revealElements = [...document.querySelectorAll('[data-reveal], [data-scene-reveal], [data-draw]')];
   const pointerElements = [...document.querySelectorAll('[data-parallax], [data-tilt]')];
   const buttons = [...document.querySelectorAll('[data-motion-toggle]')];
-  const route = window.location?.hash || '#/';
+  const route = window.location?.pathname || '/';
   const routeHeading = route !== previousRoute ? document.querySelector('#app h1') : null;
   previousRoute = route;
   let preference = savedPreference();

@@ -1,7 +1,7 @@
 import * as members from './live-store.js';
 export * from './live-store.js';
 
-let content={};const subscribers=new Set();let loading;
+let content={};try{content=JSON.parse(globalThis.document?.getElementById('public-content')?.textContent||'{}');}catch{}const subscribers=new Set();let loading;
 export function getState(){const state=members.getState();for(const key of ['reels','gallery','news','committee','partners'])if(Array.isArray(content[key])){const records=new Map((state[key]||[]).map(item=>[item.id,item]));for(const item of content[key])records.set(item.id,item);state[key]=[...records.values()];}state.settings={...state.settings,...content.settings};return state;}
 const emit=()=>subscribers.forEach(fn=>fn(getState()));
 members.subscribe(emit);

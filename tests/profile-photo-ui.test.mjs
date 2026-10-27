@@ -13,7 +13,7 @@ async function fixture({profile={...complete,photoURL:customURL,avatar:customURL
   const prior={document:globalThis.document,FormData:globalThis.FormData,location:globalThis.location};
   const service={user,getAuthState(){return{user:this.user};},subscribeAuth(){return()=>{};},friendlyError:e=>e.message,async uploadImage(){return{url:'https://example.test/new-upload.jpg'};}};
   globalThis.__photoUIAuth=service;
-  const source=(await readFile(new URL('../public/js/community.js',import.meta.url),'utf8')).replace("import * as auth from './firebase-service.js';",'const auth=globalThis.__photoUIAuth;').replace("from './profile-photo.js'",`from '${new URL('../public/js/profile-photo.js',import.meta.url).href}'`)+`\n// fixture ${++seq}`;
+  const source=(await readFile(new URL('../public/js/community.js',import.meta.url),'utf8')).replace("from './ui-styles.js'",`from '${new URL('../public/js/ui-styles.js',import.meta.url).href}'`).replace("from './router.js'",`from '${new URL('../public/js/router.js',import.meta.url).href}'`).replace("import * as auth from './firebase-service.js';",'const auth=globalThis.__photoUIAuth;').replace("from './profile-photo.js'",`from '${new URL('../public/js/profile-photo.js',import.meta.url).href}'`)+`\n// fixture ${++seq}`;
   const ui=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
   const saved=[],messages=[],navigations=[];
   const state={profile,profilePending:false,publicMembers:[],tickets:[],orders:[],messages:[],posts:[]};
@@ -25,7 +25,7 @@ async function fixture({profile={...complete,photoURL:customURL,avatar:customURL
   const form={dataset:{},handlers:{},elements:{...controls,namedItem:key=>controls[key]},reportValidity:()=>true,setAttribute(){},addEventListener(type,fn){this.handlers[type]=fn;},querySelector(selector){if(selector.startsWith('[name="'))return controls[selector.slice(7,-2)];return {'[data-photo-preview]':preview,'[data-photo-status]':photoStatus,'.form-error':error,'[type="submit"]':submit,'[data-photo-remove]':remove,'[data-photo-google]':google}[selector]||null;},querySelectorAll(selector){return selector==='[name="profilePhoto"],[data-photo-remove],[data-photo-google]'?[controls.profilePhoto,remove,google]:[];}};
   globalThis.FormData=class{constructor(f){this.form=f;}get(key){return this.form.elements[key]?.value??null;}getAll(key){const value=this.get(key);return Array.isArray(value)?value:[];}};
   globalThis.document={getElementById:id=>id==='community-edit-form'?form:null,querySelectorAll:()=>[],createElement:()=>node()};
-  globalThis.location={hash:'#/profile'};
+  globalThis.location={pathname:'/profile',search:'',hash:''};
   ui.mountCommunity(ctx);
   return {ui,ctx,state,service,saved,messages,navigations,form,controls,preview,photoStatus,error,remove,google,submit:()=>form.handlers.submit({preventDefault(){}}),restore(){Object.assign(globalThis,prior);}};
 }

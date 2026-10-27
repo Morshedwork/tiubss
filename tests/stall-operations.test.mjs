@@ -49,7 +49,7 @@ test('stall and menu text is escaped in the operator queue',()=>{
 });
 
 test('staff access assignment appears only for a super administrator',()=>{
- globalThis.location={hash:'#/admin/roles'};
+ globalThis.location={pathname:'/admin/roles',search:'',hash:''};
  assert.doesNotMatch(renderAdmin(ctx(state(['admin']))),/data-admin-form="staff-assignment"/);
  assert.match(renderAdmin(ctx(state(['super_admin']))),/data-admin-form="staff-assignment"/);
 });
