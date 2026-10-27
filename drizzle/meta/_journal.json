@@ -15,6 +15,13 @@
       "when": 1793111526893,
       "tag": "0001_aspiring_naoko",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793117014780,
+      "tag": "0002_flashy_typhoid_mary",
+      "breakpoints": true
     }
   ]
 }

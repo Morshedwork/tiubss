@@ -1,3 +1,4 @@
+import {handleCommunityAPI} from './community.mjs';
 import {builtinRecord,mergeBuiltinRecords} from '../public/js/builtin-content.js';
 import { contentSchemas, settingsFields } from '../public/js/admin-content-schema.js';
 import { normalizeInstagramReelURL } from '../public/js/instagram.js';
@@ -111,6 +112,7 @@ export async function handleAdminAPI(request,env) {
       const object=await env.BUCKET?.get('admin-media/'+key);if(!object)throw failure(404,'Image not found.');
       return new Response(object.body,{headers:{'Content-Type':object.httpMetadata?.contentType||'application/octet-stream','Cache-Control':'public, max-age=31536000, immutable','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"}});
     }
+    if(path.startsWith('/api/community/'))return handleCommunityAPI(request,env);
     if(!path.startsWith('/api/admin/'))throw failure(404,'Not found.');
     if(!['GET','POST','PUT','DELETE'].includes(method))throw failure(405,'Method not allowed.');
     if(method!=='GET')requireOrigin(request);
@@ -139,6 +141,7 @@ export async function handleAdminAPI(request,env) {
       return issueSession(env,accountUser(row),encoded);
     }
     const current=await session(request,env);
+    if(path.startsWith('/api/admin/operations'))return handleCommunityAPI(request,env,current);
     if(path==='/api/admin/session'&&method==='GET')return json({user:current.user,expiresAt:current.expires_at});
     if(path==='/api/admin/logout'&&method==='POST'){
       await env.DB.prepare('DELETE FROM admin_sessions WHERE id = ?').bind(current.id).run();

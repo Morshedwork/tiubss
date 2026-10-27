@@ -46,3 +46,20 @@ export const adminAccounts = sqliteTable('admin_accounts', {
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+export const communityMembers = sqliteTable('community_members', {
+  id: text('id').primaryKey(),
+  status: text('status').notNull(),
+  directoryOptIn: integer('directory_opt_in').notNull().default(0),
+  data: text('data').notNull(),
+  version: integer('version').notNull().default(1),
+  updatedAt: integer('updated_at').notNull(),
+});
+// Versioned ledgers keep capacity, stock, reservations and redemption atomic.
+export const communityLedgers = sqliteTable('community_ledgers', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  data: text('data').notNull(),
+  version: integer('version').notNull().default(1),
+  updatedAt: integer('updated_at').notNull(),
+}, table => [index('community_ledgers_kind').on(table.kind)]);

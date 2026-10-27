@@ -1,4 +1,4 @@
-/** Independent admin entry point; Firebase services load only after workspace sign-in. */
+/** Independent admin entry point; Operational services load only after workspace sign-in. */
 import {renderStandaloneAdmin,mountStandaloneAdmin,initializeStandaloneAdmin,subscribeStandaloneAdmin,standaloneAdminState} from './standalone-admin.js';
 import {adminStyles,communityStyles} from './ui-styles.js';
 import {icon} from './icons.js';
@@ -14,7 +14,7 @@ function navigate(path){if(path.startsWith('/admin'))navigateRoute(path);else lo
 let services,serviceLoading=false,serviceError='',serviceRevision=0;
 const servicesActive=()=>!!standaloneAdminState().user && /^\/admin\/services(?:\/|$)/.test(currentRoute().split('?')[0]);
 const ctx={esc,icon,modal,closeModal,toast,navigate,render,
- renderMemberServices:()=>services?.render()||`<section class="panel" role="status"><h2>Member services</h2><p>${serviceError?esc(serviceError):'Loading the Firebase connection…'}</p>${serviceError?'<button class="btn btn-primary" data-service-load-retry>Retry connection</button>':''}</section>`,
+ renderMemberServices:()=>services?.render()||`<section class="panel" role="status"><h2>Member services</h2><p>${serviceError?esc(serviceError):'Loading website operations…'}</p>${serviceError?'<button class="btn btn-primary" data-service-load-retry>Retry connection</button>':''}</section>`,
  refreshMemberServices:()=>services?.refresh()
 };
 function manageServices(){

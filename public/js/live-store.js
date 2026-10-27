@@ -1,4 +1,4 @@
-/** Firebase-backed application state. Live failures never fall back to demo records. */
+/** Website-backed application state. Live failures never fall back to demo records. */
 import * as firebase from './firebase-service.js';
 import {normalizeInstagramReelURL} from './instagram.js';
 import {parseFoodTicketCode} from './food-ticket-code.js';
@@ -38,7 +38,7 @@ export function createLiveStore(api = firebase) {
   const emit = () => { for (const listener of subscribers) { try { listener(getState()); } catch (error) { console.error(error); } } };
   const subscribe = listener => { subscribers.add(listener); return () => subscribers.delete(listener); };
   const uid = (prefix='item') => `${prefix}-${newRequestId()}`;
-  const explain = cause => typeof api.friendlyError === 'function' ? api.friendlyError(cause) : cause?.message || 'This Firebase operation could not be completed.';
+  const explain = cause => typeof api.friendlyError === 'function' ? api.friendlyError(cause) : cause?.message || 'This website operation could not be completed.';
   const requireUser = () => state.auth.user || fail('Please sign in to continue.');
   function setAuth(auth) {
     const user = safeUser(auth.user), roles = array(auth.roles), key = `${user?.uid || ''}|${[...roles].sort().join(',')}`;
@@ -81,8 +81,9 @@ export function createLiveStore(api = firebase) {
       if (!state.auth.configured) { await api.initFirebase(); setAuth(api.getAuthState()); }
       const epoch = revision, userId = state.auth.user?.uid, administrator = state.roles.some(r=>['admin','super_admin'].includes(r));
       const editor = administrator || state.roles.includes('content_editor');
-      if (!state.auth.configured) { state.loading=false; state.dataErrors.connection=state.auth.error || 'Firebase could not connect. Check your connection and try again.'; emit(); return getState(); }
+      // Public records remain available even if the sign-in SDK cannot load.
       const errors = {}, updates = {publicMembers:[],members:[]};
+      if(!state.auth.configured)errors.connection=state.auth.error||'Member sign-in could not connect. Public pages remain available.';
       const read = async (label, fn, apply) => { try { const result = await fn(); if (epoch === revision) apply(result); } catch(cause) { errors[label]=explain(cause); } };
       const tasks = [
         read('members',()=>api.getPublicProfiles(),rows=>{updates.members=array(rows).map(r=>member(r,true));updates.publicMembers=updates.members;}),
@@ -90,6 +91,7 @@ export function createLiveStore(api = firebase) {
         ...Object.entries(CONTENT).map(([key,collection])=>read(key,()=>api.getContent(collection,{includeDrafts:editor}),rows=>{updates[key]=array(rows).map(r=>content(key,r)); if(key==='gallery') updates.gallery=[...clone(ARTWORK),...updates.gallery];})),
         read('settings',()=>api.getContent('websiteContent'),rows=>{const settings=array(rows).find(r=>r.id==='settings'); updates.settings={...DEFAULT_SETTINGS,...(settings || {})};})
       ];
+      if (typeof api.getBackendStatus==='function') tasks.push(read('backend',()=>api.getBackendStatus(),row=>{updates.backend=row;}));
       if (typeof api.getCommunityPosts === 'function') tasks.push(read('posts',()=>api.getCommunityPosts(),rows=>{updates.posts=array(rows);}));
       if (userId) {
         tasks.push(read('profile',()=>api.getMyProfile(),row=>{if(row){updates.profile=member({...row,...resolveProfilePhoto(row,state.auth.user)});updates.profile.profilePending=false;updates.profilePending=false;}}));
@@ -115,7 +117,7 @@ export function createLiveStore(api = firebase) {
           if(overview.requests){state.messages=array(overview.requests).filter(r=>r.type!=='volunteer');state.volunteers=array(overview.requests).filter(r=>r.type==='volunteer');}
           if(overview.posts) state.posts=array(overview.posts);
           if(overview.audits) state.audits=array(overview.audits).map(r=>({...r,createdAt:r.at || r.createdAt,recordId:r.target,actorId:r.actor}));
-          state.limitedTo=overview.limitedTo || 100;
+          state.limitedTo=overview.limitedTo ?? 100;state.assignments=overview.assignments||{};
         });
         if(typeof api.getAdminFoodOrders==='function')await read('orders',()=>api.getAdminFoodOrders(),rows=>{state.orders=array(rows).map(order);});
       } else if (state.staffAssignment) {
@@ -203,12 +205,12 @@ export function createLiveStore(api = firebase) {
     if(collection==='menu') return mutate(()=>api.saveMenuItem({...data,priceJPY:Number(data.price),stock:Number(data.stock),expectedStock:record.expectedStock ?? old.stock,photoURL:data.image || '',active:data.active!==false,perPersonLimit:Number(data.perPersonLimit || 20),ingredients:Array.isArray(data.ingredients)?data.ingredients:String(data.ingredients || ''),pickupLocation:data.pickupLocation || state.vendors.find(v=>v.id===data.vendorId)?.location || 'Food counter'}));
     if(collection==='messages'||collection==='volunteers') {
       if(old.id && typeof api.updateCommunityRequest==='function') return mutate(()=>api.updateCommunityRequest(old.id,data.status));
-      if(old.id) fail('Request status changes need the latest Firebase backend deployment.');
+      if(old.id) fail('Request status changes need the latest website deployment.');
       const type=collection==='volunteers'?'volunteer':['connection','mentorship','partners','contact'].includes(data.type||data.kind)?(data.type||data.kind):'contact';
       return mutate(()=>api.submitCommunityRequest({requestId:data.id || uid('request'),type,toUserId:data.toUserId || '',name:data.name || state.profile?.name || '',email:data.email || state.auth.user.email || '',subject:data.subject || data.topic || data.interest || data.kind || '',message:data.message || data.body || '',interest:data.interest || data.topic || ''}));
     }
     const target=collection==='settings'?'websiteContent':CONTENT[collection];
-    if(!target) fail('This action is not available for this Firebase collection.');
+    if(!target) fail('This action is not available for this collection.');
     const id=collection==='settings'?'settings':data.id || uid(collection);
     const payload={...data,photoURL:data.image || data.photo || data.logo || data.photoURL || '',description:data.caption || data.bio || data.excerpt || data.location || data.description || '',url:data.website || data.url || '',status:data.status || 'published'};
     if(collection==='reels'){payload.url=normalizeInstagramReelURL(data.url);if(!payload.url)fail('Use a direct public Instagram reel URL.');}
@@ -275,7 +277,7 @@ export function createLiveStore(api = firebase) {
   }
   return {getState,subscribe,uid,initialize,refresh,refreshSession,refreshOrders,loadEventData,saveRecord,saveProfile,removeRecord,importInstagramReels,registerEvent,placeOrder,checkInTicket,lookupFoodOrder,advanceOrder,exportCSV,
     createCommunityPost:data=>mutate(()=>api.createCommunityPost(data)),deleteCommunityPost:id=>mutate(()=>api.deleteCommunityPost(id)),togglePostHeart:id=>mutate(()=>api.togglePostHeart(id)),replyToCommunityPost:(id,body)=>mutate(()=>api.replyToPost(id,body)),moderateCommunityPost:(id,status)=>mutate(()=>api.moderatePost(id,status)),
-    cancelTicket:id=>mutate(()=>api.cancelRegistration(id)),cancelOrder:id=>mutate(()=>api.cancelFoodOrder(id)),resetDemo:()=>fail('Live Firebase data cannot be reset from the website.'),dispose:()=>{authUnsubscribe?.();revision++;subscribers.clear();}
+    cancelTicket:id=>mutate(()=>api.cancelRegistration(id)),cancelOrder:id=>mutate(()=>api.cancelFoodOrder(id)),resetDemo:()=>fail('Live website data cannot be reset from the website.'),dispose:()=>{authUnsubscribe?.();revision++;subscribers.clear();}
   };
 }
 function mergeRows(a,b){return [...new Map([...a,...b].map(row=>[row.id,row])).values()];}

@@ -12,13 +12,13 @@ test('services resolve nested operational routes and reject unrelated content ta
  assert.equal(serviceTab('/admin/services'),'members');
  assert.equal(serviceTab('/admin/services/gallery'),'overview');
 });
-test('privileged service view requires authenticated claims and a current matching assignment',()=>{
+test('privileged service view requires the independent admin identity and successful reads',()=>{
  assert.equal(serviceAccess({...base(),auth:{configured:true,user:null}}),'signed-out');
  assert.equal(serviceAccess({...base(),roles:['member']}),'unassigned');
- assert.equal(serviceAccess({...base(),staffAssignment:{roles:[]}}),'unassigned');
- assert.equal(serviceAccess({...base(),staffAssignment:null}),'unassigned');
+ assert.equal(serviceAccess({...base(),staffAssignment:{roles:[]}}),'ready');
+ assert.equal(serviceAccess({...base(),staffAssignment:null}),'ready');
  assert.equal(serviceAccess({...base(),loading:true}),'loading');
- assert.equal(serviceAccess({...base(),dataErrors:{staff:'Permission denied'}}),'failed');
+ assert.equal(serviceAccess({...base(),auth:{configured:false,user:null}}),'signed-out');
  assert.equal(serviceAccess({...base(),dataErrors:{admin:'Cannot load'}}),'failed');
  assert.equal(serviceAccess(base()),'ready');
 });
@@ -30,7 +30,7 @@ test('embedded operations preserve services routes and omit duplicate site conte
  assert.doesNotMatch(html,/href="\/admin\/services\/gallery"/);
  assert.doesNotMatch(html,/admin-sidebar/);
 });
-test('failed Firestore admin reads render a real error instead of an empty directory',async()=>{
+test('failed website admin reads render a real error instead of an empty directory',async()=>{
  let state={...base(),dataErrors:{admin:'Missing or insufficient permissions.'}},disposed=false;
  const store={getState:()=>state,subscribe:()=>()=>{},initialize:async()=>{},dispose:()=>{disposed=true;}};
  const api={friendlyError:e=>e.message};
@@ -44,9 +44,9 @@ test('sign in and unassigned states do not render or imply privileged records',a
  let state={...base(),auth:{configured:true,user:null},roles:[]};
  const store={getState:()=>state,subscribe:()=>()=>{},initialize:async()=>{},dispose(){}};
  const services=createAdminServices(context,{store,api:{friendlyError:e=>e.message},loadConfiguration:async()=>{}});
- await services.initialize();assert.match(services.render(),/member-service-signin/);
- state={...base(),staffAssignment:{roles:['member']}};
- assert.match(services.render(),/Administrator access required/);
+ await services.initialize();assert.match(services.render(),/Admin sign-in required/);
+ state={...base(),roles:['member']};
+ assert.match(services.render(),/Admin sign-in required/);
  assert.doesNotMatch(services.render(),/class="member-operations"/);
  services.dispose();
 });
