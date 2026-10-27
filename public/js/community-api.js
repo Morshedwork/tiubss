@@ -2,14 +2,16 @@
 export function createCommunityAPI({admin=false,token=async()=>'',user=()=>null}={}){
  const pending=new Map();
  async function request(path,options={}){
+  const privateRequest=path!=='/api/community/public'&&path!=='/api/community/health'&&path!=='/api/site-content',identity=privateRequest?user()?.uid:null;
   const headers={...options.headers};
   if(!admin&&path!=='/api/community/public'&&path!=='/api/community/health'&&path!=='/api/site-content')headers.Authorization='Bearer '+await token();
   if(options.method&&options.method!=='GET')headers[admin?'X-BSS-Admin':'X-BSS-Member']='1';
   const response=await fetch(path,{...options,headers,credentials:admin?'same-origin':'omit',cache:'no-store'});
   let body;try{body=await response.json();}catch{throw new Error('The website service could not respond. Please retry.');}
+  if(privateRequest&&identity!==user()?.uid)throw new Error('Your account changed. Please retry from your dashboard.');
   if(!response.ok)throw Object.assign(new Error(body.error||'The request failed.'),{status:response.status});return body;
  }
- const shared=path=>{if(!pending.has(path)){const p=request(path).finally(()=>{if(pending.get(path)===p)pending.delete(path);});pending.set(path,p);}return pending.get(path);};
+ const shared=path=>{const key=path+((path==='/api/community/me'||path==='/api/admin/operations')?'|'+(user()?.uid||''): '');if(!pending.has(key)){const p=request(path).finally(()=>{if(pending.get(key)===p)pending.delete(key);});pending.set(key,p);}return pending.get(key);};
  const publicData=()=>shared('/api/community/public'),privateData=()=>shared(admin?'/api/admin/operations':'/api/community/me');
  const call=(action,data)=>request(admin?'/api/admin/operations/action':'/api/community/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,data})});
  const owned=(rows)=>(rows||[]).filter(r=>r.uid===user()?.uid);

@@ -30,3 +30,8 @@ test('independent admin adapter and live store persist the event-stall-menu flow
  assert.deepEqual(store.getState().dataErrors,{});
  }finally{store.dispose();globalThis.fetch=prior;}
 });
+test('an in-flight private read is never shared with a different account',async()=>{
+ const prior=globalThis.fetch;let active={uid:'alice'},resolveFirst;
+ globalThis.fetch=async(path,options)=>{const identity=options.headers.Authorization;if(identity==='Bearer alice')return new Promise(resolve=>{resolveFirst=()=>resolve(new Response(JSON.stringify({profile:{id:'alice'}})));});return new Response(JSON.stringify({profile:{id:'bob'}}));};
+ try{const api=createCommunityAPI({token:async()=>active.uid,user:()=>active});const first=api.getMyProfile();await new Promise(resolve=>setImmediate(resolve));active={uid:'bob'};const second=await api.getMyProfile();assert.equal(second.id,'bob');resolveFirst();await assert.rejects(first,/account changed/);}finally{globalThis.fetch=prior;}
+});

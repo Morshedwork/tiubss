@@ -20,7 +20,7 @@ async function ledger(env,ledgerId,kind){const row=await env.DB.prepare('SELECT 
 async function updateLedger(env,ledgerId,kind,change){
  for(let attempt=0;attempt<8;attempt++){
   const {value,version}=await ledger(env,ledgerId,kind),result=await change(value);
-  const data=JSON.stringify(value);if(new TextEncoder().encode(data).length>1800000)fail(409,'This event has reached its record capacity. Create a new event before accepting more orders.');
+  const data=JSON.stringify(value);if(new TextEncoder().encode(data).length>1800000)fail(409,kind==='event'?'This event has reached its record capacity. Create a new event before accepting more orders.':'The community board has reached its record capacity. Contact the website owner.');
   const updated=version?await env.DB.prepare('UPDATE community_ledgers SET data=?,version=version+1,updated_at=? WHERE id=? AND version=? RETURNING version').bind(data,Date.now(),ledgerId,version).first():await env.DB.prepare('INSERT INTO community_ledgers (id,kind,data,version,updated_at) VALUES (?,?,?,1,?) ON CONFLICT(id) DO NOTHING RETURNING version').bind(ledgerId,kind,data,Date.now()).first();
   if(updated)return result;
  }
@@ -79,7 +79,7 @@ export async function communityAction(env,actor,action,data){
  if(action==='saveProfile')return updateMember(env,actor.uid,old=>validateProfile(data,old,actor));
  if(action==='approveMembership'){checkAdmin(actor);const uid=key(data.uid,'member');if(!['pending','approved','rejected','suspended'].includes(data.status))fail(400,'Invalid membership status.');return updateMember(env,uid,old=>{if(!old)fail(404,'Member not found.');return {...old,membershipStatus:data.status,updatedAt:iso(),reviewedBy:actor.uid};});}
  if(action==='saveEvent'){
-  checkAdmin(actor);const eventId=data.id?key(data.id):id();return updateLedger(env,eventId,'event',s=>{
+  checkAdmin(actor);const eventId=data.id?key(data.id):id();if(data.slug&&(await eventStates(env)).some(s=>s.event?.slug===data.slug&&s.event.id!==eventId))fail(409,'An event already uses this URL slug. Choose another slug.');return updateLedger(env,eventId,'event',s=>{
    const old=s.event;if(data.id&&!old)fail(404,'Event not found.');const startsAt=time(data.startsAt,'start time'),endsAt=time(data.endsAt,'end time');if(endsAt<=startsAt)fail(400,'End time must follow the start time.');
    const capacity=integer(data.capacity,'capacity',1,10000);if(capacity<s.registrations.filter(t=>t.status!=='cancelled').length)fail(409,'Capacity cannot be lower than existing registrations.');
    if(!['draft','published','cancelled'].includes(data.status))fail(400,'Invalid event status.');if(Number(data.ticketPriceJPY||0)!==0)fail(400,'Event admission is free. Paid admission is not enabled.');
