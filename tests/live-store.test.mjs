@@ -81,3 +81,21 @@ test('Refresh reconnects after a failed Firebase initialization without reloadin
   const beforeRetry=attempts;connected=true;await store.refresh();
   assert.ok(attempts>beforeRetry);assert.equal(store.getState().auth.configured,true);assert.equal(store.getState().events[0].id,'event-live');assert.equal(store.getState().dataErrors.connection,undefined);
 });
+
+
+test('an organiser can approve their own pending membership using the protected review operation',async()=>{
+ let approved=false,profileSaves=0;
+ const row=()=>({uid:'u1',name:'Member',email:'private@example.org',membershipStatus:approved?'approved':'pending',directoryOptIn:true});
+ const f=fixture({async getMyProfile(){return row();},async getStaffAssignment(){return {roles:['admin']};},async getAdminOverview(){return {members:[row()],errors:{orders:'Orders unavailable'}};},async getPublicProfiles(){return approved?[{uid:'u1',name:'Member'}]:[];},async approveMembership(uid,status){assert.equal(uid,'u1');assert.equal(status,'approved');approved=true;},async saveMyProfile(){profileSaves++;}});
+ await f.store.initialize();f.changeAuth({roles:['admin']});await f.store.refresh();
+ assert.equal(f.store.getState().members[0].status,'pending');assert.equal(f.store.getState().dataErrors['admin:orders'],'Orders unavailable');
+ await f.store.saveRecord('members',{id:'u1',status:'approved'});
+ assert.equal(profileSaves,0);assert.equal(f.store.getState().members[0].status,'approved');assert.equal(f.store.getState().publicMembers[0].name,'Member');assert.equal(f.store.getState().publicMembers[0].email,undefined);
+});
+
+test('a member cannot submit an approval and a failed public refresh clears old listings',async()=>{
+ let failed=false;
+ const f=fixture({async getPublicProfiles(){if(failed)throw new Error('Unavailable');return [{uid:'public1',name:'Public member'}];}});
+ await f.store.initialize();await assert.rejects(f.store.saveRecord('members',{id:'u1',status:'approved'}),/Administrator access/);
+ failed=true;await f.store.refresh();assert.deepEqual(f.store.getState().publicMembers,[]);assert.equal(f.store.getState().dataErrors.members,'Unavailable');
+});
