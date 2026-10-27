@@ -170,6 +170,7 @@ export function renderResetPassword(ctx) {
   return `<main class="page-container bss-auth-page"><div class="bss-auth-layout">${authAside('signin')}<section class="bss-auth-content"><a href="/signin" class="text-link">← Back to sign in</a><p class="eyebrow" style="margin-top:2rem">LET’S GET YOU BACK IN</p><h1>A fresh<br><em>start.</em></h1><p class="auth-intro">Enter your account email and we’ll request a password reset link.</p><form id="community-reset-form">${input(ctx,'Email address','email','','required autocomplete="email"','email')}<button type="submit" class="btn btn-primary auth-submit">Send reset link ↗</button><p class="form-error" role="alert" hidden></p><p class="auth-form-status" role="status" hidden></p></form></section></div></main>`;
 }
 
+const requestOwnerId = request => request.uid ?? request.fromUserId ?? request.userId;
 function personalRecords(ctx, collection) { const s = state(ctx); return list(s[collection]).filter(item => item.userId === s.profile?.id).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)); }
 function statusBadge(ctx, status) { return `<span class="badge status-${esc(ctx, status || 'pending')}">${esc(ctx, String(status || 'pending').replaceAll('_', ' '))}</span>`; }
 function eventFor(ctx, id) { return list(state(ctx).events).find(event => event.id === id); }
@@ -188,7 +189,7 @@ function profileOverview(ctx, p) {
   const tickets = personalRecords(ctx, 'tickets');
   const orders = personalRecords(ctx, 'orders');
   const incoming = list(state(ctx).incomingRequests);
-  const messages = list(state(ctx).messages).filter(m => (m.fromUserId === p.id || m.userId === p.id) && ['connection', 'mentorship'].includes(m.type)).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  const messages = list(state(ctx).messages).filter(m => (requestOwnerId(m) === p.id) && ['connection', 'mentorship'].includes(m.type)).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
   return `<div class="dashboard-welcome"><p class="eyebrow">YOUR COMMUNITY, IN ONE PLACE</p><h2>Hello, ${esc(ctx, String(p.name||'Member').split(' ')[0])}.</h2><p>Good to have you here. Your next gathering is just around the corner.</p></div><div class="profile-stat-grid"><button class="panel profile-stat" data-community-action="profile-tab" data-tab="tickets"><strong>${tickets.filter(t => t.status !== 'cancelled').length}</strong><span>Event tickets <span aria-hidden="true">↗</span></span></button><button class="panel profile-stat" data-community-action="profile-tab" data-tab="orders"><strong>${orders.filter(o => o.status !== 'cancelled').length}</strong><span>Food orders <span aria-hidden="true">↗</span></span></button><div class="panel profile-stat"><strong>${messages.length}</strong><span>Connection requests</span></div></div>${completionCard(ctx,p)}${profileSummary(ctx,p)}<div class="section-title-row"><h3>My latest tickets</h3><button class="text-button" data-community-action="profile-tab" data-tab="tickets">See all →</button></div>${tickets.length ? `<div class="personal-tickets-grid">${tickets.slice(0, 2).map(ticket => ticketCard(ctx, ticket)).join('')}</div>` : empty(ctx, 'A good gathering is waiting.', 'Register for a community event to find your ticket here.', 'Explore events', '/events')}${incoming.length ? `<section class="panel connection-history"><div class="section-title-row"><h3>People reaching out</h3></div><ul>${incoming.map(m=>`<li><div><strong>${esc(ctx,m.name || 'A community member')} · ${esc(ctx,m.type==='mentorship'?'Mentorship':'Connection')}</strong><p>${esc(ctx,m.message || m.body || '')}</p></div><span class="badge badge-soft">${esc(ctx,m.status || 'submitted')}</span></li>`).join('')}</ul></section>` : ''}<section class="panel connection-history"><div class="section-title-row"><h3>Sent requests</h3><span class="sample-label">Your requests</span></div>${messages.length ? `<ul>${messages.slice(0, 5).map(m => `<li><div><strong>${esc(ctx, m.type === 'mentorship' ? 'Mentorship request' : 'Connection request')}</strong><p>To ${esc(ctx, m.toName || publicMembers(ctx).find(person => person.id === m.toUserId)?.name || 'a community member')}</p></div><span class="badge badge-soft">Submitted</span></li>`).join('')}</ul>` : '<p>Your saved connection and mentorship requests will appear here.</p>'}</section>`;
 }
@@ -288,9 +289,22 @@ function requestConnection(ctx, memberId, mentorship) {
   if (!m) return;
   if (!s.profile) { ctx.modal('Start with your profile', `<p>Sign in to send a connection or mentorship request.</p><div class="modal-actions"><a href="/join" class="btn btn-primary" id="connection-join">Create an account</a></div>`, () => { document.getElementById('connection-join')?.addEventListener('click', () => ctx.closeModal()); }); return; }
   ctx.modal(mentorship ? 'A new perspective starts here' : `Say hello to ${m.name.split(' ')[0]}`, `<form id="community-message-form"><p>${mentorship ? 'Introduce yourself and share what you’d like guidance with.' : 'Tell them a little about yourself and why you’d like to connect.'}</p><div class="demo-form-note"><span class="sample-label">Community request</span><p>Your request appears in the member’s dashboard. Email notifications are not enabled.</p></div><label class="field"><span>Your message *</span><textarea name="message" required maxlength="1500" rows="5" placeholder="Hi ${esc(ctx, m.name.split(' ')[0])}, I’m…"></textarea></label><div class="modal-actions"><button class="btn btn-primary" type="submit">Submit request</button></div><p class="form-error" role="alert" hidden></p></form>`, () => {
+    let submission;
     document.getElementById('community-message-form')?.addEventListener('submit', async event => {
-      event.preventDefault(); const form = event.currentTarget; const message = new FormData(form).get('message').trim(); if (!message) return;
-      try { await ctx.store.saveRecord('messages', { id: `msg_${crypto.randomUUID()}`, type: mentorship ? 'mentorship' : 'connection', fromUserId: s.profile.id, userId: s.profile.id, toUserId: m.id, toName: m.name, name: s.profile.name, subject: `${mentorship ? 'Mentorship' : 'Connection'} request to ${m.name}`, message, status: 'submitted', isDemo: false, createdAt: new Date().toISOString() }); ctx.closeModal(); ctx.toast('Your request has been submitted.'); } catch (error) { showFormError(form, error); }
+      event.preventDefault(); const form = event.currentTarget;
+      if (form.dataset.busy === 'true') return;
+      const message = String(new FormData(form).get('message') || '').trim(); if (!message) return;
+      const button = form.querySelector('[type="submit"]');
+      form.dataset.busy = 'true'; button.disabled = true; clearFormError(form);
+      try {
+        if (auth.getAuthState().user?.uid !== s.profile.id || state(ctx).profile?.id !== s.profile.id) throw new Error('Your signed-in account changed. Reopen this request from your dashboard.');
+        // Keep the same accepted request on an uncertain network retry. Editing
+        // its message deliberately starts a different request reference.
+        if (!submission || submission.message !== message) submission = {id: 'msg_' + crypto.randomUUID(), message};
+        await ctx.store.saveRecord('messages', { id: submission.id, requestId: submission.id, submitRequest: true, type: mentorship ? 'mentorship' : 'connection', fromUserId: s.profile.id, userId: s.profile.id, toUserId: m.id, toName: m.name, name: s.profile.name, subject: (mentorship ? 'Mentorship' : 'Connection') + ' request to ' + m.name, message, status: 'submitted', isDemo: false, createdAt: new Date().toISOString() });
+        ctx.closeModal(); ctx.toast('Your request has been submitted.');
+      } catch (error) { showFormError(form, error); }
+      finally { form.dataset.busy = 'false'; button.disabled = false; }
     });
   });
 }
@@ -316,7 +330,7 @@ function mountAccountForms(ctx) {
   }));
   document.querySelectorAll('[data-google-signin]').forEach(button=>button.addEventListener('click',async()=>{
     button.disabled=true;button.dataset.authBusy='true';
-    try{await auth.signInWithGoogle();const signedIn=auth.getAuthState().user,signupDraft=profileDrafts.get('signup');await ctx.store.refreshSession();if(!signedIn||auth.getAuthState().user?.uid!==signedIn.uid)throw new Error('Your signed-in account changed. Please open your dashboard again.');const current=state(ctx);if(signupDraft&&current.profilePending&&!current.dataErrors?.profile)profileDrafts.set(signedIn.uid,mergeGoogleSignupDraft(signupDraft,signedIn));profileDrafts.delete('signup');profileTab=current.profilePending||!profileRequirements(current.profile||{}).complete?'edit':'overview';profileTabChosen=false;button.dataset.authBusy='false';ctx.navigate('/profile');ctx.render();}
+    try{const credential=await auth.signInWithGoogle();const signedIn=credential.user,signupDraft=profileDrafts.get('signup');await ctx.store.refreshSession();if(!signedIn||auth.getAuthState().user?.uid!==signedIn.uid)throw new Error('Your signed-in account changed. Please open your dashboard again.');const current=state(ctx);if(signupDraft&&current.profilePending&&!current.dataErrors?.profile)profileDrafts.set(signedIn.uid,mergeGoogleSignupDraft(signupDraft,signedIn));profileDrafts.delete('signup');profileTab=current.profilePending||!profileRequirements(current.profile||{}).complete?'edit':'overview';profileTabChosen=false;button.dataset.authBusy='false';ctx.navigate('/profile');ctx.render();}
     catch(error){ctx.toast(auth.friendlyError?.(error)||error.message);}
     finally{button.disabled=false;button.dataset.authBusy='false';}
   }));
@@ -449,7 +463,7 @@ export function mountCommunity(ctx) {
     if (action === 'cancel-order') confirmAction(ctx, 'Cancel this food order?', 'Your unpaid order will be cancelled and its reserved stock released.', 'Cancel order', async () => { await ctx.store.cancelOrder(button.dataset.id); ctx.toast('Food order cancelled.'); });
     if (action === 'toggle-visibility' && s.profile) { try { if(!s.profile.directoryVisible&&!profileRequirements(s.profile).complete){profileTab='edit';profileTabChosen=true;ctx.render();ctx.toast('Complete your required member details before joining the directory.');return;}await ctx.store.saveProfile(s.profile.directoryVisible?{directoryVisible:false}:{ ...s.profile, directoryVisible:true }); ctx.toast(s.profile.directoryVisible ? 'Your profile is now hidden.' : (s.profile.status === 'approved' ? 'Your approved public profile is now visible in the directory.' : 'Directory opt-in saved. Your listing is awaiting membership approval.')); ctx.render(); } catch (error) { ctx.toast(error.message); } }
     if (action === 'export-data' && s.profile) {
-      const payload = { exportedAt: new Date().toISOString(), profile: s.profile, tickets: personalRecords(ctx, 'tickets'), orders: personalRecords(ctx, 'orders'), messages: list(s.messages).filter(m => m.fromUserId === s.profile.id || m.userId === s.profile.id), volunteerApplications: list(s.volunteers).filter(m => m.userId === s.profile.id), communityNotes: list(s.posts).filter(m => m.userId === s.profile.id) };
+      const payload = { exportedAt: new Date().toISOString(), profile: s.profile, tickets: personalRecords(ctx, 'tickets'), orders: personalRecords(ctx, 'orders'), messages: list(s.messages).filter(m => requestOwnerId(m) === s.profile.id), volunteerApplications: list(s.volunteers).filter(m => requestOwnerId(m) === s.profile.id), communityNotes: list(s.posts).filter(m => m.userId === s.profile.id) };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'my-bss-account-data.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); ctx.toast('Your available account data download is ready.');
     }
   }));

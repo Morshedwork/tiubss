@@ -94,3 +94,14 @@ test('definitive server rejection unlocks basket editing without inventing a tic
     await f.click('qty',{eventId:'festival',menuId:'rice',delta:'-1'});assert.equal(f.memory.size,0);
   }finally{f.restore();}
 });
+
+
+test('registration retries show a cancelled ticket honestly and a new booking gets a success message',async()=>{
+  const f=await setup();try {
+    let status='cancelled';f.ctx.store.registerEvent=async()=>({id:'event-ticket',eventId:'festival',status});
+    await f.click('register',{id:'festival'});await f.modalClick('confirm');
+    assert.match(f.messages.at(-1),/registration was cancelled/);assert.equal(f.shown.at(-1).ticket.status,'cancelled');
+    status='confirmed';await f.click('register',{id:'festival'});await f.modalClick('confirm');
+    assert.equal(f.messages.at(-1),'Your place is reserved.');assert.equal(f.shown.at(-1).ticket.status,'confirmed');
+  } finally {f.restore();}
+});

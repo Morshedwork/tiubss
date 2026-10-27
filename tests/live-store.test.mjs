@@ -103,3 +103,12 @@ test('a member cannot submit an approval and a failed public refresh clears old 
  await f.store.initialize();await assert.rejects(f.store.saveRecord('members',{id:'u1',status:'approved'}),/Administrator access/);
  failed=true;await f.store.refresh();assert.deepEqual(f.store.getState().publicMembers,[]);assert.equal(f.store.getState().dataErrors.members,'Unavailable');
 });
+
+
+test('an admin status edit with a persisted retry key uses the server request ID',async()=>{
+ const row={id:'server-request-id',requestId:'original-retry-key',uid:'sender',type:'connection',status:'submitted'},updates=[];let submissions=0;
+ const f=fixture({getMyRequests:async()=>[],getAdminOverview:async()=>({members:[],requests:[row]}),updateCommunityRequest:async(...args)=>{updates.push(args);},submitCommunityRequest:async()=>{submissions++;}});
+ await f.store.initialize();f.changeAuth({roles:['admin']});await f.store.refresh();
+ await f.store.saveRecord('messages',{...f.store.getState().messages[0],status:'read'});
+ assert.deepEqual(updates,[['server-request-id','read']]);assert.equal(submissions,0);
+});

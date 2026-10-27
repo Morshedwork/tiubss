@@ -17,12 +17,18 @@ const time=(value,label)=>{const ms=Date.parse(value);if(!Number.isFinite(ms))fa
 const parse=row=>row?JSON.parse(row.data):null;
 async function ledger(env,ledgerId,kind){const row=await env.DB.prepare('SELECT data,version FROM community_ledgers WHERE id=?').bind(ledgerId).first();return {value:parse(row)||(kind==='event'?emptyEvent():emptySocial()),version:row?.version||0};}
 // One conditional write commits all stock, ticket and order changes together.
-async function updateLedger(env,ledgerId,kind,change){
+async function updateLedger(env,ledgerId,kind,change,{uniqueEventSlug=false}={}){
  for(let attempt=0;attempt<8;attempt++){
   const {value,version}=await ledger(env,ledgerId,kind),result=await change(value);
   const data=JSON.stringify(value);if(new TextEncoder().encode(data).length>1800000)fail(409,kind==='event'?'This event has reached its record capacity. Create a new event before accepting more orders.':'The community board has reached its record capacity. Contact the website owner.');
-  const updated=version?await env.DB.prepare('UPDATE community_ledgers SET data=?,version=version+1,updated_at=? WHERE id=? AND version=? RETURNING version').bind(data,Date.now(),ledgerId,version).first():await env.DB.prepare('INSERT INTO community_ledgers (id,kind,data,version,updated_at) VALUES (?,?,?,1,?) ON CONFLICT(id) DO NOTHING RETURNING version').bind(ledgerId,kind,data,Date.now()).first();
+  // Check the slug in the same SQL write as the event, including concurrent creates/renames.
+  const slugGuard=uniqueEventSlug?" AND NOT EXISTS (SELECT 1 FROM community_ledgers WHERE kind='event' AND id<>? AND json_extract(data,'$.event.slug')=?)":'';
+  const slugParams=uniqueEventSlug?[ledgerId,value.event.slug]:[];
+  const updated=version
+   ?await env.DB.prepare('UPDATE community_ledgers SET data=?,version=version+1,updated_at=? WHERE id=? AND version=?'+slugGuard+' RETURNING version').bind(data,Date.now(),ledgerId,version,...slugParams).first()
+   :await env.DB.prepare('INSERT INTO community_ledgers (id,kind,data,version,updated_at) SELECT ?,?,?,1,? WHERE 1=1'+slugGuard+' ON CONFLICT(id) DO NOTHING RETURNING version').bind(ledgerId,kind,data,Date.now(),...slugParams).first();
   if(updated)return result;
+  if(uniqueEventSlug&&await env.DB.prepare("SELECT id FROM community_ledgers WHERE kind='event' AND id<>? AND json_extract(data,'$.event.slug')=? LIMIT 1").bind(ledgerId,value.event.slug).first())fail(409,'An event already uses this URL slug. Choose another slug.');
  }
  fail(409,'Another request updated this event. Please retry.');
 }
@@ -88,7 +94,7 @@ export async function communityAction(env,actor,action,data){
  if(action==='saveProfile')return updateMember(env,actor.uid,old=>validateProfile(data,old,actor));
  if(action==='approveMembership'){checkAdmin(actor);const uid=key(data.uid,'member');if(!['pending','approved','rejected','suspended'].includes(data.status))fail(400,'Invalid membership status.');return updateMember(env,uid,old=>{if(!old)fail(404,'Member not found.');return {...old,membershipStatus:data.status,updatedAt:iso(),reviewedBy:actor.uid};});}
  if(action==='saveEvent'){
-  checkAdmin(actor);const eventId=data.id?key(data.id):id();if(data.slug&&(await eventStates(env)).some(s=>s.event?.slug===data.slug&&s.event.id!==eventId))fail(409,'An event already uses this URL slug. Choose another slug.');return updateLedger(env,eventId,'event',s=>{
+  checkAdmin(actor);const eventId=data.id?key(data.id):id();return updateLedger(env,eventId,'event',s=>{
    const old=s.event;if(data.id&&!old)fail(404,'Event not found.');const startsAt=time(data.startsAt,'start time'),endsAt=time(data.endsAt,'end time');if(endsAt<=startsAt)fail(400,'End time must follow the start time.');
    const capacity=integer(data.capacity,'capacity',1,10000);if(capacity<s.registrations.filter(t=>t.status!=='cancelled').length)fail(409,'Capacity cannot be lower than existing registrations.');
    if(!['draft','published','cancelled'].includes(data.status))fail(400,'Invalid event status.');if(Number(data.ticketPriceJPY||0)!==0)fail(400,'Event admission is free. Paid admission is not enabled.');
@@ -97,7 +103,7 @@ export async function communityAction(env,actor,action,data){
    if(s.event.foodClosesAt>endsAt||s.event.registrationClosesAt>endsAt)fail(400,'Ordering and registration must close by the event end.');
    if(old&&old.status!=='cancelled'&&s.event.status==='cancelled'){for(const t of s.registrations)if(!t.checkedIn)t.status='cancelled';for(const o of s.orders)if(o.status==='confirmed'&&o.paymentStatus==='unpaid')release(s,o,'cancelled');}
    note(s,actor,'event.saved',eventId);return s.event;
-  });
+  },{uniqueEventSlug:true});
  }
  if(action==='saveVendor'||action==='saveMenuItem'){
   checkAdmin(actor);const eventId=key(data.eventId,'event');return updateLedger(env,eventId,'event',s=>{if(!s.event)fail(404,'Event not found.');expire(s);const list=action==='saveVendor'?s.vendors:s.menu,recordId=data.id?key(data.id):id(),old=list.find(r=>r.id===recordId);
@@ -109,7 +115,19 @@ export async function communityAction(env,actor,action,data){
   });
  }
  if(action==='registerForEvent'){
-  const profile=await requireProfile(env,actor),eventId=key(data.eventId);return updateLedger(env,eventId,'event',s=>{const existing=s.registrations.find(t=>t.uid===actor.uid&&t.status!=='cancelled');if(existing)return existing;const e=eventOpen(s);if(Date.parse(e.registrationClosesAt)<=Date.now())fail(409,'Registration has closed.');if(s.registrations.filter(t=>t.status!=='cancelled').length>=e.capacity)fail(409,'This event is fully booked.');const t={id:id(),eventId,uid:actor.uid,name:profile.name,status:'confirmed',ticketToken:id()+id(),createdAt:iso(),checkedIn:false};s.registrations.push(t);return t;});
+  const profile=await requireProfile(env,actor),eventId=key(data.eventId),requestId=data.requestId===undefined?null:key(data.requestId,'registration reference');
+  return updateLedger(env,eventId,'event',s=>{
+   // A retry keeps its original outcome even if the member has since cancelled it.
+   const retried=requestId&&s.registrations.find(t=>t.uid===actor.uid&&(t.requestId===requestId||t.requestIds?.includes(requestId)));if(retried)return retried;
+   const existing=s.registrations.find(t=>t.uid===actor.uid&&t.status!=='cancelled');
+   if(existing){
+    // Preserve successful retry keys for legacy tickets and already-booked members.
+    if(requestId){if(!existing.requestId)existing.requestId=requestId;else (existing.requestIds??=[]).push(requestId);}
+    return existing;
+   }
+   const e=eventOpen(s);if(Date.parse(e.registrationClosesAt)<=Date.now())fail(409,'Registration has closed.');if(s.registrations.filter(t=>t.status!=='cancelled').length>=e.capacity)fail(409,'This event is fully booked.');
+   const t={id:id(),eventId,uid:actor.uid,...(requestId?{requestId}:{}),name:profile.name,status:'confirmed',ticketToken:id()+id(),createdAt:iso(),checkedIn:false};s.registrations.push(t);return t;
+  });
  }
  if(action==='cancelRegistration'||action==='checkInRegistration'){
   const ref=key(data.registrationId),eventId=await locate(env,'registrations',ref);if(action==='checkInRegistration')await authorizeEvent(env,actor,eventId,'',['event_manager','checkin_staff']);
@@ -147,14 +165,14 @@ export async function communityAction(env,actor,action,data){
   return updateLedger(env,'social','social',async s=>{
    if(action==='assignStaff'){checkAdmin(actor);if(!actor.owner)fail(403,'Only the workspace owner can assign staff.');const uid=key(data.uid);const roles=strings(data.roles,'staff roles',5,40);if(roles.some(r=>!['event_manager','checkin_staff','food_vendor_manager','kitchen_staff','pickup_staff'].includes(r)))fail(400,'Use invited admin accounts for administrator access.');s.assignments[uid]={roles,eventIds:strings(data.eventIds||[],'event references',30,128).map(v=>key(v)),vendorIds:strings(data.vendorIds||[],'stall references',30,128).map(v=>key(v))};note(s,actor,action,uid);return {ok:true};}
    if(action==='submitCommunityRequest'){
-    const requestId=key(data.requestId),existing=s.requests.find(r=>r.uid===actor.uid&&r.id===requestId);
+    const requestId=key(data.requestId),existing=s.requests.find(r=>r.uid===actor.uid&&(r.requestId??r.id)===requestId);
     if(existing){if(communityRequestContent(existing)!==communityRequestContent(requestData))fail(409,'This request reference was used for a different message. Start a new request.');return existing;}
     // Compare persisted fields directly so legacy records need no migration.
     // Recipient availability affects new requests, not retries of accepted ones.
     if(['connection','mentorship'].includes(requestData.type)){const recipient=await member(env,key(requestData.toUserId));if(!recipient||!publicProfile(recipient))fail(404,'This member is not accepting directory requests.');if(requestData.toUserId===actor.uid)fail(400,'Choose another community member.');}
-    const r={id:requestId,uid:actor.uid,...requestData,name:profile.name,email:actor.email,status:'submitted',createdAt:iso()};s.requests.push(r);return r;
+    const r={id:id(),requestId,uid:actor.uid,...requestData,name:profile.name,email:actor.email,status:'submitted',createdAt:iso()};s.requests.push(r);return r;
    }
-   if(action==='updateCommunityRequest'){checkAdmin(actor);const r=s.requests.find(r=>r.id===data.id);if(!r)fail(404,'Request not found.');if(!['submitted','pending','read','approved','rejected','closed'].includes(data.status))fail(400,'Invalid request status.');r.status=data.status;note(s,actor,action,r.id);return r;}
+   if(action==='updateCommunityRequest'){checkAdmin(actor);const matches=s.requests.filter(r=>r.id===data.id);if(matches.length>1)fail(409,'This reference matches multiple legacy requests. Contact the website owner to resolve it.');const r=matches[0];if(!r)fail(404,'Request not found.');if(!['submitted','pending','read','approved','rejected','closed'].includes(data.status))fail(400,'Invalid request status.');r.status=data.status;note(s,actor,action,r.id);return r;}
    if(action==='createCommunityPost'){if(!['introduction','question','moment','opportunity'].includes(data.category))fail(400,'Choose a note category.');const p={id:id(),uid:actor.uid,userId:actor.uid,name:profile.name,body:text(data.body,'note',600,true),category:data.category,status:'published',hearts:[],replies:[],createdAt:iso()};s.posts.push(p);return p;}
    const p=s.posts.find(p=>p.id===data.id);if(!p)fail(404,'Community note not found.');
    if(action==='deleteCommunityPost'){if(p.uid!==actor.uid)fail(403,'Only the author can delete their note.');s.posts=s.posts.filter(r=>r.id!==p.id);return {ok:true};}

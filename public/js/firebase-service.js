@@ -28,7 +28,14 @@ export async function initFirebase() {
       await new Promise((resolve, reject) => {
         let first = true;
         authentication.onIdTokenChanged(auth, async user => {
+          if (auth.currentUser?.uid !== user?.uid) return;
           const revision = ++authRevision;
+          // Clear the previous member's identity and privileges before role I/O.
+          // Other tabs can change the SDK user while an old form is still open.
+          if (state.user?.uid !== user?.uid) {
+            state = { ...state, configured: true, user, roles: [], error: null, loading: false };
+            emit();
+          }
           try {
             const roles = user ? await staffRoles(user) : [];
             if (revision !== authRevision || auth.currentUser?.uid !== user?.uid) return;
@@ -62,13 +69,26 @@ async function ready(requireUser = false) {
   if (!state.configured) throw error('firebase/unconfigured', state.error || 'Member sign-in is not configured.');
   if (requireUser && !auth.currentUser) throw error('auth/required', 'Please sign in to continue.');
   if (auth.currentUser && state.user?.uid !== auth.currentUser.uid) {
-    const roles = await staffRoles(auth.currentUser);
-    state = { ...state, configured: true, user: auth.currentUser, roles, error: null };
+    const user = auth.currentUser, revision = authRevision;
+    const roles = await staffRoles(user);
+    if (auth.currentUser?.uid !== user.uid) throw error('auth/account-changed', 'Your signed-in account changed. Please open your dashboard again.');
+    if (revision === authRevision) {
+      state = { ...state, configured: true, user, roles, error: null };
+      emit();
+    }
   }
 }
 export async function signInWithGoogle() {
   await ready(); const provider = new sdk.authentication.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
-  return sdk.authentication.signInWithPopup(auth, provider);
+  const credential = await sdk.authentication.signInWithPopup(auth, provider);
+  if (!credential.user || auth.currentUser?.uid !== credential.user.uid) throw error('auth/account-changed', 'Your signed-in account changed. Please open your dashboard again.');
+  // The token observer also loads staff roles. Publish the confirmed identity
+  // immediately so a slower role request cannot make a successful login fail.
+  if (state.user?.uid !== credential.user.uid) {
+    state = { ...state, configured: true, user: credential.user, roles: [], error: null, loading: false };
+    emit();
+  }
+  return credential;
 }
 export async function signInWithEmail(email, password) { await ready(); return sdk.authentication.signInWithEmailAndPassword(auth, String(email).trim(), password); }
 export async function signUpWithEmail(email, password, displayName) {

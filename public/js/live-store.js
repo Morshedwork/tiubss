@@ -204,10 +204,10 @@ export function createLiveStore(api = firebase) {
     }
     if(collection==='menu') return mutate(()=>api.saveMenuItem({...data,priceJPY:Number(data.price),stock:Number(data.stock),expectedStock:record.expectedStock ?? old.stock,photoURL:data.image || '',active:data.active!==false,perPersonLimit:Number(data.perPersonLimit || 20),ingredients:Array.isArray(data.ingredients)?data.ingredients:String(data.ingredients || ''),pickupLocation:data.pickupLocation || state.vendors.find(v=>v.id===data.vendorId)?.location || 'Food counter'}));
     if(collection==='messages'||collection==='volunteers') {
-      if(old.id && typeof api.updateCommunityRequest==='function') return mutate(()=>api.updateCommunityRequest(old.id,data.status));
-      if(old.id) fail('Request status changes need the latest website deployment.');
+      if(old.id && record.submitRequest!==true && typeof api.updateCommunityRequest==='function') return mutate(()=>api.updateCommunityRequest(old.id,data.status));
+      if(old.id && record.submitRequest!==true) fail('Request status changes need the latest website deployment.');
       const type=collection==='volunteers'?'volunteer':['connection','mentorship','partners','contact'].includes(data.type||data.kind)?(data.type||data.kind):'contact';
-      return mutate(()=>api.submitCommunityRequest({requestId:data.id || uid('request'),type,toUserId:data.toUserId || '',name:data.name || state.profile?.name || '',email:data.email || state.auth.user.email || '',subject:data.subject || data.topic || data.interest || data.kind || '',message:data.message || data.body || '',interest:data.interest || data.topic || ''}));
+      return mutate(()=>api.submitCommunityRequest({requestId:data.requestId || data.id || uid('request'),type,toUserId:data.toUserId || '',name:data.name || state.profile?.name || '',email:data.email || state.auth.user.email || '',subject:data.subject || data.topic || data.interest || data.kind || '',message:data.message || data.body || '',interest:data.interest || data.topic || ''}));
     }
     const target=collection==='settings'?'websiteContent':CONTENT[collection];
     if(!target) fail('This action is not available for this collection.');

@@ -1,5 +1,5 @@
 import {handleCommunityAPI} from './community.mjs';
-import {builtinRecord,mergeBuiltinRecords} from '../public/js/builtin-content.js';
+import {BUILTIN_RECORDS,builtinRecord,mergeBuiltinRecords} from '../public/js/builtin-content.js';
 import { contentSchemas, settingsFields } from '../public/js/admin-content-schema.js';
 import { normalizeInstagramReelURL } from '../public/js/instagram.js';
 
@@ -94,11 +94,20 @@ export function validateRecord(kind,input) {
   if(kind==='news'&&!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(data.slug))throw failure(400,'Use lowercase words separated by hyphens for the page slug.');
   return data;
 }
+async function readSavedRecords(env) {
+  const ids=BUILTIN_RECORDS.map(row=>row.id),placeholders=ids.map(()=>'?').join(',');
+  // Builtin overrides control visibility and must never be lost to the custom-content cap.
+  const [custom,overrides]=await Promise.all([
+    env.DB.prepare(`SELECT * FROM website_records WHERE id NOT IN (${placeholders}) ORDER BY created_at DESC LIMIT 1000`).bind(...ids).all(),
+    env.DB.prepare(`SELECT * FROM website_records WHERE id IN (${placeholders})`).bind(...ids).all()
+  ]);
+  return [...(custom.results||[]),...(overrides.results||[])].map(row=>({...publicRecord(row),collection:row.collection}));
+}
 export async function readPublic(env) {
   if(!env.DB)throw failure(503,'Website content is not available yet.');
-  const rows=await env.DB.prepare('SELECT * FROM website_records ORDER BY created_at DESC LIMIT 1000').all();
+  const rows=await readSavedRecords(env);
   const result=Object.fromEntries(Object.keys(contentSchemas).map(k=>[k,[]]));
-  for(const row of mergeBuiltinRecords((rows.results||[]).map(row=>({...publicRecord(row),collection:row.collection}))).filter(row=>row.status==='published'))if(result[row.collection])result[row.collection].push(row);
+  for(const row of mergeBuiltinRecords(rows).filter(row=>row.status==='published'))if(result[row.collection])result[row.collection].push(row);
   result.catalogManaged=true;
   const settings=await env.DB.prepare("SELECT data FROM website_settings WHERE id = 'main'").first();
   result.settings=settings?JSON.parse(settings.data):{};return result;
@@ -148,10 +157,10 @@ export async function handleAdminAPI(request,env) {
       return json({ok:true},200,{'Set-Cookie':`${COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`});
     }
     if(path==='/api/admin/workspace'&&method==='GET'){
-      const records=await env.DB.prepare('SELECT * FROM website_records ORDER BY created_at DESC LIMIT 1000').all();
+      const records=await readSavedRecords(env);
       const settings=await env.DB.prepare("SELECT data,version FROM website_settings WHERE id = 'main'").first();
       const history=await env.DB.prepare('SELECT action, target, created_at, actor FROM admin_audit ORDER BY created_at DESC LIMIT 20').all();
-      return json({records:mergeBuiltinRecords((records.results||[]).map(row=>({...publicRecord(row),collection:row.collection}))),settings:settings?JSON.parse(settings.data):{},settingsVersion:settings?.version||0,history:history.results||[],user:current.user});
+      return json({records:mergeBuiltinRecords(records),settings:settings?JSON.parse(settings.data):{},settingsVersion:settings?.version||0,history:history.results||[],user:current.user});
     }
     if(path==='/api/admin/team'||path.startsWith('/api/admin/team/')){
       if(current.user.role!=='owner')throw failure(403,'Only the owner can manage admin access.');
