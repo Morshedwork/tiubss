@@ -81,3 +81,8 @@ test('Refresh reconnects after a failed Firebase initialization without reloadin
   const beforeRetry=attempts;connected=true;await store.refresh();
   assert.ok(attempts>beforeRetry);assert.equal(store.getState().auth.configured,true);assert.equal(store.getState().events[0].id,'event-live');assert.equal(store.getState().dataErrors.connection,undefined);
 });
+
+test('partnership and mentorship requests retain their type and selected topic',async()=>{
+ let saved;const f=fixture({async submitCommunityRequest(data){saved=data;return{id:'r1'};}});await f.store.initialize();
+ for(const kind of ['partners','mentorship','contact']){await f.store.saveRecord('messages',{kind,topic:'Community collaboration',message:'Let us talk'});assert.equal(saved.type,kind);assert.equal(saved.subject,'Community collaboration');assert.equal(saved.interest,'Community collaboration');}
+});

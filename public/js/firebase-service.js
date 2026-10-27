@@ -1,4 +1,5 @@
 /** Live Firebase adapter. Failed operations never fall back to browser-local demo data. */
+import {appCheckOptions} from './app-check-config.js';
 import {requestId} from './request-id.js';
 const SDK = 'https://www.gstatic.com/firebasejs/13.0.0/';
 let sdk = null, app = null, auth = null, db = null, functions = null, storage = null, initialization = null;
@@ -23,7 +24,7 @@ export async function initFirebase() {
       app = core.getApps().find(existing => existing.name === 'tiu-bss') || core.initializeApp(config, 'tiu-bss');
       if (globalThis.BSS_FIREBASE_APP_CHECK_KEY) {
         const appCheck = await import(SDK + 'firebase-app-check.js');
-        appCheck.initializeAppCheck(app, { provider: new appCheck.ReCaptchaV3Provider(globalThis.BSS_FIREBASE_APP_CHECK_KEY), isTokenAutoRefreshEnabled: true });
+        appCheck.initializeAppCheck(app, appCheckOptions(appCheck));
       }
       auth = authentication.getAuth(app);
       db = firestore.getFirestore(app);

@@ -14,7 +14,7 @@ export const escapeHTML=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&a
 export function publicState(content={}){
  const arrays=['events','menu','vendors','members','tickets','orders','gallery','reels','news','volunteers','messages','posts','committee','partners','audits','publicMembers'];
  const state={...Object.fromEntries(arrays.map(k=>[k,[]])),...content,profile:null,loading:false,isLive:true,auth:{user:null,configured:true},roles:[],settings:{title:SITE_NAME,instagram:'https://www.instagram.com/tiu.bss/',...content.settings}};
- state.gallery=[{id:'reference-peacocks',title:'Colour, culture & connection',category:'Art & Culture',image:'assets/reference-peacocks.webp',caption:'Artwork supplied as a visual reference for this website.',isArtwork:true},{id:'reference-flowers',title:'Rooted in tradition',category:'Art & Culture',image:'assets/reference-flowers.webp',caption:'Artwork supplied as a visual reference for this website.',isArtwork:true},...state.gallery];return state;
+ state.gallery=content.catalogManaged?state.gallery:[{id:'reference-peacocks',title:'Colour, culture & connection',category:'Art & Culture',image:'assets/reference-peacocks.webp',caption:'Artwork supplied as a visual reference for this website.',isArtwork:true},{id:'reference-flowers',title:'Rooted in tradition',category:'Art & Culture',image:'assets/reference-flowers.webp',caption:'Artwork supplied as a visual reference for this website.',isArtwork:true},...state.gallery];return state;
 }
 const safeDecode=value=>{try{return decodeURIComponent(value);}catch{return '';}};
 export function renderPublic(path,state){
@@ -41,7 +41,7 @@ export function renderPublic(path,state){
  }
  return {body:body.replace(/<main\b/g,'<section').replace(/<\/main>/g,'</section>'),header:views.header(),footer:views.footer(),missing:views.missing()};
 }
-const knownPrivate=p=>/^\/(?:admin(?:\/(?:login|overview|reels|gallery|news|committee|partners|settings|services(?:\/(?:overview|events|members|orders|menu|vendors|wall|volunteers|inbox|reports|roles))?|team|accept))?|staff(?:\/[^/]+)?|members\/[^/]+|events\/[^/]+(?:\/food)?|profile|tickets|join|signin|forgot-password|setup|verify-certificate(?:\/[^/]+)?)$/.test(p);
+const knownPrivate=p=>/^\/(?:admin(?:\/(?:login|overview|areas|art-studio|culture|panels|reels|gallery|news|committee|partners|settings|services(?:\/(?:overview|events|registrations|counter|members|orders|menu|vendors|wall|volunteers|inbox|reports|roles))?|team|accept))?|staff(?:\/[^/]+)?|members\/[^/]+|events\/[^/]+(?:\/food)?|profile|tickets|join|signin|forgot-password|setup|verify-certificate(?:\/[^/]+)?)$/.test(p);
 export function renderDocument(template,path,content={},options={}){
  const state=publicState(content),m=metadata(path,state),view=renderPublic(path,state);
  const isAdmin=path==='/admin'||path.startsWith('/admin/');

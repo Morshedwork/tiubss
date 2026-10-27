@@ -8,6 +8,8 @@ window.BSS_FIREBASE_CONFIG = {
   appId: "1:716174897127:web:f59e1e41af3765cddc9742",
   measurementId: "G-KJV0228HSN"
 };
-// Set the public reCAPTCHA v3 site key registered in Firebase App Check before
+// Set the public score-based Enterprise key registered in Firebase App Check before
 // enabling protected profile, community, event and food-order writes.
 window.BSS_FIREBASE_APP_CHECK_KEY = '';
+
+window.BSS_FIREBASE_APP_CHECK_PROVIDER = 'recaptcha-enterprise';

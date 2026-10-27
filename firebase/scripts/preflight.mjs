@@ -39,7 +39,7 @@ try {
   report(complete ? 'OK' : 'BLOCKED', complete ? 'Required public Firebase web identifiers are present (values withheld).' : 'Required Firebase web identifiers are missing.');
   const key = web.BSS_FIREBASE_APP_CHECK_KEY;
   const hasAppCheck = typeof key === 'string' && key.trim().length > 10 && !/YOUR_|PLACEHOLDER|REPLACE/i.test(key);
-  report(hasAppCheck ? 'OK' : 'BLOCKED', hasAppCheck ? 'An App Check public site key is set; its live registration still needs verification.' : 'Set the registered reCAPTCHA v3 App Check site key in public/firebase-config.js. Callable writes remain blocked.');
+  report(hasAppCheck ? 'OK' : 'BLOCKED', hasAppCheck ? 'An App Check public site key is set; its live registration still needs verification.' : 'Set the registered App Check public site key (matching the configured provider) in public/firebase-config.js. Callable writes remain blocked.');
 } catch {
   report('BLOCKED', 'Could not read the public Firebase web configuration.');
 }

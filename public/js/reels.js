@@ -35,7 +35,7 @@ function autoplayControl(){
 function publishedReels(ctx){
  const records=ctx.store.getState().reels,seen=new Set();
  // Curated previews take precedence when the same reel is also saved in the CMS.
- return [...FEATURED_REELS,...(Array.isArray(records)?records:[])].filter(reel=>{
+ return [...(ctx.store.getState().catalogManaged?[]:FEATURED_REELS),...(Array.isArray(records)?records:[])].filter(reel=>{
   if(!reel||reel.status!=='published')return false;
   const url=normalizeInstagramReelURL(reel.url);if(!url||seen.has(url))return false;
   seen.add(url);return true;

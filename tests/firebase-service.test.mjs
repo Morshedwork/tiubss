@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 
 const original = (await readFile(new URL('../public/js/firebase-service.js', import.meta.url), 'utf8'))
+  .replace("from './app-check-config.js'", `from '${new URL('../public/js/app-check-config.js', import.meta.url).href}'`)
   .replace("from './request-id.js'", `from '${new URL('../public/js/request-id.js', import.meta.url).href}'`);
 let sequence = 0;
 async function fixture(driver) {
@@ -77,4 +78,15 @@ test('Firebase initialization can retry after a temporary SDK download failure',
     assert.equal((await api.initFirebase()).configured,false);
     fail=false;assert.equal((await api.initFirebase()).configured,true);assert.equal(attempts,10);
   } finally {delete globalThis[key];if(priorConfig===undefined)delete globalThis.BSS_FIREBASE_CONFIG;else globalThis.BSS_FIREBASE_CONFIG=priorConfig;}
+});
+
+test('App Check selects the registered provider and requires no secret in browser config',async()=>{
+ const {appCheckOptions}=await import('../public/js/app-check-config.js');
+ class Enterprise{constructor(key){this.key=key;}}class V3{constructor(key){this.key=key;}}
+ const sdk={ReCaptchaEnterpriseProvider:Enterprise,ReCaptchaV3Provider:V3};
+ const options=appCheckOptions(sdk,{BSS_FIREBASE_APP_CHECK_KEY:'public-site-key',BSS_FIREBASE_APP_CHECK_PROVIDER:'recaptcha-enterprise'});
+ assert.ok(options.provider instanceof Enterprise);assert.equal(options.isTokenAutoRefreshEnabled,true);
+ assert.ok(appCheckOptions(sdk,{BSS_FIREBASE_APP_CHECK_KEY:'legacy-public-key'}).provider instanceof V3);
+ assert.equal(appCheckOptions(sdk,{}),null);
+ assert.throws(()=>appCheckOptions(sdk,{BSS_FIREBASE_APP_CHECK_KEY:'key',BSS_FIREBASE_APP_CHECK_PROVIDER:'unknown'}),/not supported/);
 });

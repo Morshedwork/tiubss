@@ -2,13 +2,13 @@
 
 The site frontend now targets Firebase project `tiu-bss` using the supplied public web configuration. Member login/logout, profile data, community activity, registrations, food orders and content operations use the live adapter, without a local-demo fallback. Authentication is enabled and Firestore is provisioned; Storage billing, App Check and backend deployment are still required; the web configuration is not an administrator credential. No payment processor, outbound event email service or push notifications are connected.
 
-Current console status on 20 October 2026:
+Current console status on 28 October 2026 (Japan time):
 
-- Firebase Authentication is initialized; Email/Password and Google both show Enabled. The production site hostname is authorized, and the public configuration endpoint returns HTTP 200.
+- Firebase Authentication is initialized; Email/Password and Google both show Enabled. The generated Sites hostname is authorized; `www.tiubss.com` and `tiubss.com` still need to be authorized.
 - Firestore Standard database `(default)` was created in `asia-northeast1` (Tokyo). The prepared `firestore.rules` file was published successfully in the console. Client writes remain denied; validated Cloud Functions own writes.
-- Firebase Storage explicitly requires the project owner to upgrade from Spark to Blaze. No billing plan change was performed.
-- The `asia-northeast1` `saveProfile` function endpoint returned HTTP 404; backend functions and indexes remain to deploy.
-- No App Check public site key is configured. Callable writes intentionally remain protected; account sign-in itself does not require that key.
+- Firebase Storage and Functions explicitly require the project owner to upgrade from Spark to Blaze. No billing plan change was performed.
+- The `asia-northeast1` `saveProfile` function endpoint returned HTTP 404; backend functions remain to deploy. All 13 composite indexes are now present; the seven missing indexes were created and finished successfully in the console.
+- The web app is unregistered in App Check. No App Check public site key is configured. The console disables new Classic reCAPTCHA registration; the client now supports the Enterprise provider, with `BSS_FIREBASE_APP_CHECK_PROVIDER` set to `recaptcha-enterprise`. Callable writes intentionally remain protected; account sign-in itself does not require that key.
 - Firebase JavaScript SDK 13.0.0 was reachable. No real member accounts were created and no end-to-end account/upload test was performed.
 
 The billing requirement, undeployed functions, and missing App Check key prevent profile/community saves and picture uploads. The website reports these failures instead of showing false success.
@@ -66,7 +66,7 @@ The preflight prints no API keys, account details or credentials. Exit code `2` 
 
 1. **Project access and billing.** Connect the Firebase integration to `tiu-bss`, or use an already installed Firebase CLI authenticated as the project owner. Confirm Blaze activation and Storage provisioning in the [Firebase console](https://console.firebase.google.com/project/tiu-bss/overview). Billing changes require the owner's action; this preflight never performs them.
 2. **Authentication domains.** Confirm Email/Password and Google providers are enabled. Add `www.tiubss.com` and `tiubss.com` to Authentication → Settings → Authorized domains. Keep `tiu-bss.firebaseapp.com` and the active Sites hostname if that address is still used. Enter hostnames without a protocol/path. The earlier generated hostname was `tiu-bss-community.agile-poppy-0617.chatgpt.site`; verify the current address before adding it.
-3. **App Check.** Register this web app for reCAPTCHA v3, authorize its website hostnames, and set the public site key in **`public/firebase-config.js`** (`window.BSS_FIREBASE_APP_CHECK_KEY`). All callable writes enforce App Check. Do not disable that protection to work around missing configuration. Republish the Site after changing this public key. Never put private service-account keys in frontend code.
+3. **App Check.** Create a score-based Web key in Google Cloud Fraud Defense (reCAPTCHA Enterprise) for the production website hostnames, register it in Firebase App Check, and set the same public site key in **`public/firebase-config.js`** (`window.BSS_FIREBASE_APP_CHECK_KEY`). All callable writes enforce App Check. Do not disable that protection to work around missing configuration. Republish the Site after changing this public key. Never put private service-account keys in frontend code.
 4. **Build and deploy Firebase.** With Node 22 and authorized project access, run:
 
 ```bash
@@ -167,3 +167,11 @@ Firebase Authentication initialized through the owner’s console session. Email
 ## Member query indexes — 20 October 2026
 
 Created the six Collection-scope indexes for ordinary portal startup in the Firebase console: events (`status` ASC, `startsAt` ASC), communityPosts (`status` ASC, `createdAt` DESC), registrations (`uid` ASC, `createdAt` DESC), foodOrders (`uid` ASC, `createdAt` DESC), and communityRequests (`uid` ASC or `toUserId` ASC, then `createdAt` DESC). Their definitions already exist in `firestore.indexes.json`. The console begins building each index on creation; wait for Enabled before retrying affected queries. Admin/staff-specific indexes still require deployment from the complete file. This does not activate backend writes or Storage.
+
+## Complete Admin navigation — 28 October 2026 (Japan time)
+
+`/admin/areas` maps all 18 footer destinations to their management screens and public previews. The standalone member-services render crash is fixed. `/admin/services/registrations` embeds guest lookup/check-in and `/admin/services/counter` embeds the kitchen/cash/pickup workflow. Requests preserve partnership/mentorship type and chosen topic and support status changes. Firebase claims and current staff assignments are still required.
+
+The content workspace now includes the shipped reels, gallery images, committee panels and cultural stories. Edits are stored as versioned overrides, and hiding a shipped item keeps a draft that can be restored. New committee panel picture lists are validated. `/admin/art-studio` publishes through the existing protected Admin upload and gallery APIs. These content operations use the existing D1/R2 website workspace; they do not grant Firebase member access.
+
+Local checks: 113 tests passed and browser QA exercised Admin navigation, cultural editing and the art-studio view using isolated fixtures. Live Firebase writes/uploads remain unverified. Google Cloud's key-management page returned “Site Unavailable” in this browser, including after one reload; no Enterprise key, billing upgrade, domain authorization or role mutation was performed.

@@ -23,7 +23,7 @@ export const PAGES={
  '/terms':['Community Guidelines | TIU BSS','Read TIU BSS community guidelines for respectful participation, sharing content, events and food pickup.']
 };
 export const ALIASES={'/home':'/','/mission':'/about','/history':'/about','/stalls':'/mela','/signup':'/join','/login':'/signin','/dashboard':'/profile','/orders':'/tickets','/index.html':'/'};
-for(const section of ['events','members','orders','menu','vendors','wall','volunteers','inbox','reports','roles'])ALIASES['/admin/'+section]='/admin/services/'+section;
+for(const section of ['events','registrations','counter','members','orders','menu','vendors','wall','volunteers','inbox','reports','roles'])ALIASES['/admin/'+section]='/admin/services/'+section;
 ALIASES['/admin/food-orders']='/admin/services/orders';
 export function normalizePath(path){const p=String(path||'/').split(/[?#]/)[0].replace(/\/+$/,'')||'/';return ALIASES[p]||p;}
 export function metadata(path,state={}){

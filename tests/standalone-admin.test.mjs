@@ -35,13 +35,13 @@ test('protected content persists, drafts stay private, stale updates fail, and p
   const draft={title:'A community moment',url:'https://instagram.com/reel/CzLvp0CR5Fq/?share=1',category:'Community',caption:'Together',status:'draft'};
   assert.equal((await f.call('admin/records/reels',{method:'POST',data:draft})).status,401);
   const created=await f.call('admin/records/reels',{method:'POST',token,data:draft});assert.equal(created.status,201);const record=await created.json();
-  assert.equal((await (await f.call('site-content')).json()).reels.length,0);
+  assert.equal((await (await f.call('site-content')).json()).reels.filter(r=>!r.builtin).length,0);
   const changed=await f.call('admin/records/reels/'+record.id,{method:'PUT',token,data:{...draft,status:'published',version:1}});assert.equal(changed.status,200);
   assert.equal((await f.call('admin/records/reels/'+record.id,{method:'PUT',token,data:{...draft,version:1}})).status,409);
   const published=await (await f.call('site-content')).json();assert.equal(published.reels[0].url,'https://www.instagram.com/reel/CzLvp0CR5Fq/');
-  const workspace=await (await f.call('admin/workspace',{token})).json();assert.equal(workspace.records.length,1);
+  const workspace=await (await f.call('admin/workspace',{token})).json();assert.equal(workspace.records.filter(r=>!r.builtin).length,1);
   assert.equal((await f.call('admin/records/reels/'+record.id,{method:'DELETE',token,data:{version:2}})).status,200);
-  assert.equal((await (await f.call('site-content')).json()).reels.length,0);
+  assert.equal((await (await f.call('site-content')).json()).reels.filter(r=>!r.builtin).length,0);
 });
 test('logout, expiry and password rotation each invalidate the server session',async()=>{
   const f=fixture();let token=await f.login();
@@ -112,4 +112,35 @@ test('invitation creation and acceptance reject invalid email, weak passwords, f
  assert.equal((await f.call('admin/login',{method:'POST',data:{username:'unknown@example.test',password}})).status,401);
  assert.equal((await f.call('admin/invitation/accept',{method:'POST',origin:'https://evil.test',data:{token:'a'.repeat(64),password:'test-password-123'}})).status,403);
  assert.equal((await f.call('admin/invitation/accept',{method:'POST',data:{token:'a'.repeat(64),password:'test-password-123',role:'owner'}})).status,400);
+});
+
+test('included content can be edited, hidden and restored with conflict protection',async()=>{
+ const f=fixture(),token=await f.login();
+ const workspace=await (await f.call('admin/workspace',{token})).json();
+ for(const kind of ['reels','panels','culture','gallery']){
+  const original=workspace.records.find(row=>row.collection===kind&&row.builtin);
+  assert.ok(original,kind);assert.equal(original.version,0);
+  const path='admin/records/'+kind+'/'+original.id;
+  assert.equal((await f.call(path,{method:'PUT',token,data:{...original,title:'Edited <safe> title',version:0}})).status,200);
+  assert.equal((await f.call(path,{method:'PUT',token,data:{...original,version:0}})).status,409);
+  let feed=await (await f.call('site-content')).json();
+  assert.equal(feed[kind].find(row=>row.id===original.id).title,'Edited <safe> title');
+  if(kind==='panels')assert.ok(feed.panels.find(row=>row.id===original.id).images.length);
+  assert.equal((await f.call(path,{method:'DELETE',token,data:{version:1}})).status,200);
+  feed=await (await f.call('site-content')).json();assert.ok(!feed[kind].some(row=>row.id===original.id));
+  assert.equal((await f.call(path,{method:'PUT',token,data:{...original,version:2}})).status,200);
+  feed=await (await f.call('site-content')).json();assert.ok(feed[kind].some(row=>row.id===original.id));
+ }
+});
+
+test('culture actions and committee picture lists reject unsafe destinations',async()=>{
+ const f=fixture(),token=await f.login();
+ const workspace=await (await f.call('admin/workspace',{token})).json();
+ const culture=workspace.records.find(row=>row.collection==='culture');
+ for(const href of ['//evil.example','/\\evil.example','javascript:alert(1)','/../admin'])assert.equal((await f.call('admin/records/culture/'+culture.id,{method:'PUT',token,data:{...culture,href,version:0}})).status,400);
+ const panel=workspace.records.find(row=>row.collection==='panels');
+ assert.equal((await f.call('admin/records/panels/'+panel.id,{method:'PUT',token,data:{...panel,pictures:'javascript:alert(1)',version:0}})).status,400);
+ const created=await f.call('admin/records/panels',{method:'POST',token,data:{...panel,pictures:'assets/reference-peacocks.webp',status:'published'}});
+ assert.equal(created.status,201);const id=(await created.json()).id;
+ assert.equal((await (await f.call('site-content')).json()).panels.find(p=>p.id===id).images[0].src,'assets/reference-peacocks.webp');
 });

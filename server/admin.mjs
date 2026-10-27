@@ -1,3 +1,4 @@
+import {builtinRecord,mergeBuiltinRecords} from '../public/js/builtin-content.js';
 import { contentSchemas, settingsFields } from '../public/js/admin-content-schema.js';
 import { normalizeInstagramReelURL } from '../public/js/instagram.js';
 
@@ -80,7 +81,7 @@ function safeURL(value,image=false) {
 }
 function fields(input,descriptors) {
   const result={};
-  for(const [key,label,required,max,type] of descriptors){const value=String(input[key]??'').trim();if(required&&!value)throw failure(400,`${label} is required.`);if(value.length>max)throw failure(400,`${label} is too long.`);if(value&&['url','image'].includes(type)&&!safeURL(value,type==='image'))throw failure(400,`${label} must be a valid HTTPS link or an uploaded image.`);if(value&&type==='email'&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))throw failure(400,'Enter a valid contact email.');if(type==='date'&&value&&!/^\d{4}-\d{2}-\d{2}$/.test(value))throw failure(400,'Enter a valid date.');result[key]=value;}
+  for(const [key,label,required,max,type] of descriptors){const value=String(input[key]??'').trim();if(required&&!value)throw failure(400,`${label} is required.`);if(value.length>max)throw failure(400,`${label} is too long.`);if(value&&['url','image'].includes(type)&&!safeURL(value,type==='image'))throw failure(400,`${label} must be a valid HTTPS link or an uploaded image.`);if(value&&type==='email'&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))throw failure(400,'Enter a valid contact email.');if(type==='path'&&value&&(!/^\/[a-zA-Z0-9][a-zA-Z0-9/?=&_%.-]*$/.test(value)||value.includes('..')))throw failure(400,'Use a website path such as /community or /events.');if(type==='images'&&value.split('\n').filter(Boolean).some(url=>!safeURL(url.trim(),true)))throw failure(400,'Each picture must be a valid image link.');if(type==='date'&&value&&!/^\d{4}-\d{2}-\d{2}$/.test(value))throw failure(400,'Enter a valid date.');result[key]=type==='images'?value.split('\n').map(line=>line.trim()).filter(Boolean).join('\n'):value;}
   return result;
 }
 export function validateRecord(kind,input) {
@@ -88,14 +89,16 @@ export function validateRecord(kind,input) {
   const data=fields(input,schema.fields);
   if(!['draft','published'].includes(input.status))throw failure(400,'Choose Draft or Published.');data.status=input.status;
   if(kind==='reels'){data.url=normalizeInstagramReelURL(data.url);if(!data.url)throw failure(400,'Use a direct Instagram reel link.');}
+  if(kind==='panels'&&!['leadership','secretaries','support','advisory'].includes(data.category))throw failure(400,'Choose leadership, secretaries, support or advisory.');
   if(kind==='news'&&!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(data.slug))throw failure(400,'Use lowercase words separated by hyphens for the page slug.');
   return data;
 }
 export async function readPublic(env) {
   if(!env.DB)throw failure(503,'Website content is not available yet.');
-  const rows=await env.DB.prepare("SELECT * FROM website_records WHERE status = 'published' ORDER BY created_at DESC LIMIT 1000").all();
+  const rows=await env.DB.prepare('SELECT * FROM website_records ORDER BY created_at DESC LIMIT 1000').all();
   const result=Object.fromEntries(Object.keys(contentSchemas).map(k=>[k,[]]));
-  for(const row of rows.results||[])if(result[row.collection])result[row.collection].push(publicRecord(row));
+  for(const row of mergeBuiltinRecords((rows.results||[]).map(row=>({...publicRecord(row),collection:row.collection}))).filter(row=>row.status==='published'))if(result[row.collection])result[row.collection].push(row);
+  result.catalogManaged=true;
   const settings=await env.DB.prepare("SELECT data FROM website_settings WHERE id = 'main'").first();
   result.settings=settings?JSON.parse(settings.data):{};return result;
 }
@@ -145,7 +148,7 @@ export async function handleAdminAPI(request,env) {
       const records=await env.DB.prepare('SELECT * FROM website_records ORDER BY created_at DESC LIMIT 1000').all();
       const settings=await env.DB.prepare("SELECT data,version FROM website_settings WHERE id = 'main'").first();
       const history=await env.DB.prepare('SELECT action, target, created_at, actor FROM admin_audit ORDER BY created_at DESC LIMIT 20').all();
-      return json({records:(records.results||[]).map(row=>({...publicRecord(row),collection:row.collection})),settings:settings?JSON.parse(settings.data):{},settingsVersion:settings?.version||0,history:history.results||[],user:current.user});
+      return json({records:mergeBuiltinRecords((records.results||[]).map(row=>({...publicRecord(row),collection:row.collection}))),settings:settings?JSON.parse(settings.data):{},settingsVersion:settings?.version||0,history:history.results||[],user:current.user});
     }
     if(path==='/api/admin/team'||path.startsWith('/api/admin/team/')){
       if(current.user.role!=='owner')throw failure(403,'Only the owner can manage admin access.');
@@ -205,9 +208,15 @@ export async function handleAdminAPI(request,env) {
         await audit(env.DB,'content.created',recordId,current.user.username);return json({id:recordId,version:1},201);
       }
       if(id&&['PUT','DELETE'].includes(method)){
-        const input=await body(request);if(!Number.isInteger(input.version)||input.version<1)throw failure(400,'Refresh this item before saving.');
+        const input=await body(request),builtin=builtinRecord(kind,id);if(!Number.isInteger(input.version)||input.version<(builtin?0:1))throw failure(400,'Refresh this item before saving.');
         let result;
-        if(method==='DELETE')result=await env.DB.prepare('DELETE FROM website_records WHERE id=? AND collection=? AND version=? RETURNING id').bind(id,kind,input.version).first();
+        if(builtin){
+          const existing=await env.DB.prepare('SELECT * FROM website_records WHERE id=? AND collection=?').bind(id,kind).first();
+          const data=method==='DELETE'?{...(existing?JSON.parse(existing.data):builtin),status:'draft'}:validateRecord(kind,input);
+          if(input.version===0)result=await env.DB.prepare('INSERT INTO website_records (id,collection,status,data,version,created_at,updated_at) VALUES (?,?,?,?,1,?,?) ON CONFLICT(id) DO NOTHING RETURNING id,version').bind(id,kind,data.status,JSON.stringify(data),Date.now(),Date.now()).first();
+          else result=await env.DB.prepare('UPDATE website_records SET data=?,status=?,version=version+1,updated_at=? WHERE id=? AND collection=? AND version=? RETURNING id,version').bind(JSON.stringify(data),data.status,Date.now(),id,kind,input.version).first();
+        }
+        else if(method==='DELETE')result=await env.DB.prepare('DELETE FROM website_records WHERE id=? AND collection=? AND version=? RETURNING id').bind(id,kind,input.version).first();
         else{const data=validateRecord(kind,input);result=await env.DB.prepare('UPDATE website_records SET data=?,status=?,version=version+1,updated_at=? WHERE id=? AND collection=? AND version=? RETURNING id,version').bind(JSON.stringify(data),data.status,Date.now(),id,kind,input.version).first();}
         if(!result)throw failure(409,'This item changed or was removed in another session. Refresh and try again.');
         await audit(env.DB,method==='DELETE'?'content.removed':'content.updated',id,current.user.username);return json({ok:true,...result});

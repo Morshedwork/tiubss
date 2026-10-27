@@ -192,8 +192,8 @@ export function createLiveStore(api = firebase) {
     if(collection==='messages'||collection==='volunteers') {
       if(old.id && typeof api.updateCommunityRequest==='function') return mutate(()=>api.updateCommunityRequest(old.id,data.status));
       if(old.id) fail('Request status changes need the latest Firebase backend deployment.');
-      const type=collection==='volunteers'?'volunteer':['connection','mentorship'].includes(data.type||data.kind)?(data.type||data.kind):'contact';
-      return mutate(()=>api.submitCommunityRequest({requestId:data.id || uid('request'),type,toUserId:data.toUserId || '',name:data.name || state.profile?.name || '',email:data.email || state.auth.user.email || '',subject:data.subject || data.interest || data.kind || '',message:data.message || data.body || '',interest:data.interest || ''}));
+      const type=collection==='volunteers'?'volunteer':['connection','mentorship','partners','contact'].includes(data.type||data.kind)?(data.type||data.kind):'contact';
+      return mutate(()=>api.submitCommunityRequest({requestId:data.id || uid('request'),type,toUserId:data.toUserId || '',name:data.name || state.profile?.name || '',email:data.email || state.auth.user.email || '',subject:data.subject || data.topic || data.interest || data.kind || '',message:data.message || data.body || '',interest:data.interest || data.topic || ''}));
     }
     const target=collection==='settings'?'websiteContent':CONTENT[collection];
     if(!target) fail('This action is not available for this Firebase collection.');
