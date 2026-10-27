@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveProfilePhoto, googlePhotoURL, mergeGoogleSignupDraft} from '../dist/js/profile-photo.js';
-import {createLiveStore} from '../dist/js/live-store.js';
+import {resolveProfilePhoto, googlePhotoURL, mergeGoogleSignupDraft} from '../public/js/profile-photo.js';
+import {createLiveStore} from '../public/js/live-store.js';
 
 const google='https://lh3.googleusercontent.com/test-photo';
 const custom='https://example.test/custom.jpg';

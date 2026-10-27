@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {renderTicketWallet,walletRecords,foodTicketState,foodTicketPayload,foodTicketDocument,showFoodTicket} from '../dist/js/ticket-wallet.js';
+import {renderTicketWallet,walletRecords,foodTicketState,foodTicketPayload,foodTicketDocument,showFoodTicket} from '../public/js/ticket-wallet.js';
 
 const now=Date.now();
 const order={id:'order-one',uid:'member-1',eventId:'festival',vendorId:'stall-1',orderNumber:'BSS-112233445566',vendorName:'The food table',eventTitle:'Community Festival',pickupLocation:'Courtyard · Stall 1',status:'confirmed',paymentStatus:'due',rawPaymentStatus:'unpaid',qrToken:'pickup-secret',total:900,expiresAt:new Date(now+30*60000).toISOString(),createdAt:new Date(now).toISOString(),items:[{menuId:'dish',name:'Fuchka',qty:2,price:450}]};

@@ -7,7 +7,7 @@ globalThis.localStorage = {
   setItem: (key, value) => storage.set(key, value),
   removeItem: key => storage.delete(key)
 };
-const store = await import(new URL('../dist/js/store.js', import.meta.url));
+const store = await import(new URL('../public/js/store.js', import.meta.url));
 const setupProfile = () => store.saveProfile({name: 'Test member', type: 'student'});
 const stock = id => store.getState().menu.find(item => item.id === id).stock;
 const order = (items = [{menuId: 'f1', qty: 1}]) => store.placeOrder('e1', items, '16:00–16:30');
@@ -179,7 +179,7 @@ test('community notes migrate without resetting existing data and profile deleti
   const existing = store.getState();
   delete existing.posts;
   storage.set('tiu-bss-demo-v1', JSON.stringify(existing));
-  const migrated = await import(new URL('../dist/js/store.js?migration=community', import.meta.url));
+  const migrated = await import(new URL('../public/js/store.js?migration=community', import.meta.url));
   assert.equal(migrated.getState().profile.name, 'Test member');
   assert.deepEqual(migrated.getState().posts, []);
   migrated.createCommunityPost({category: 'moment', body: 'A little home in Japan.'});

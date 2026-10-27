@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {renderAdmin,renderStaff,scopedFoodOrders,pickupEligibility} from '../dist/js/admin.js';
+import {renderAdmin,renderStaff,scopedFoodOrders,pickupEligibility} from '../public/js/admin.js';
 
 const escape=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 const order=(id,patch={})=>({id,eventId:'event-a',vendorId:'stall-a',status:'confirmed',paymentStatus:'due',total:850,items:[{name:'Biryani',qty:1}],createdAt:'2099-01-01T07:00:00Z',expiresAt:'2099-01-01T08:00:00Z',...patch});

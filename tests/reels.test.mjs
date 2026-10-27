@@ -1,6 +1,6 @@
 import test, {beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeInstagramReelURL} from '../dist/js/instagram.js';
+import {normalizeInstagramReelURL} from '../public/js/instagram.js';
 
 const storage = new Map();
 globalThis.localStorage = {
@@ -8,7 +8,7 @@ globalThis.localStorage = {
   setItem: (key, value) => storage.set(key, value),
   removeItem: key => storage.delete(key)
 };
-const store = await import('../dist/js/store.js');
+const store = await import('../public/js/store.js');
 const reel = (overrides = {}) => ({title: 'A community moment', url: 'https://www.instagram.com/reel/AbCd123_/', category: 'Community', status: 'draft', ...overrides});
 
 beforeEach(() => store.resetDemo());
@@ -77,7 +77,7 @@ test('an existing workspace gains an empty reel collection without losing record
   const existing = store.getState();
   delete existing.reels;
   storage.set('tiu-bss-demo-v1', JSON.stringify(existing));
-  const migrated = await import('../dist/js/store.js?migration=reels');
+  const migrated = await import('../public/js/store.js?migration=reels');
   assert.equal(migrated.getState().profile.name, 'Returning community member');
   assert.equal(migrated.getState().events.length, existing.events.length);
   assert.deepEqual(migrated.getState().reels, []);

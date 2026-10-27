@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createLiveStore} from '../dist/js/live-store.js';
+import {createLiveStore} from '../public/js/live-store.js';
 
 function fixture(overrides={}) {
   let auth={configured:true,user:{uid:'u1',email:'member@example.org',displayName:'Member',emailVerified:true},roles:[],error:null},listener;

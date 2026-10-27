@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createLiveStore} from '../dist/js/live-store.js';
-import {parseFoodTicketCode} from '../dist/js/food-ticket-code.js';
+import {createLiveStore} from '../public/js/live-store.js';
+import {parseFoodTicketCode} from '../public/js/food-ticket-code.js';
 
 function fixture(overrides={}) {
   let auth={configured:true,user:{uid:'buyer',email:'buyer@example.test'},roles:[]},listener;

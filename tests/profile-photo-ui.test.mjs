@@ -13,7 +13,7 @@ async function fixture({profile={...complete,photoURL:customURL,avatar:customURL
   const prior={document:globalThis.document,FormData:globalThis.FormData,location:globalThis.location};
   const service={user,getAuthState(){return{user:this.user};},subscribeAuth(){return()=>{};},friendlyError:e=>e.message,async uploadImage(){return{url:'https://example.test/new-upload.jpg'};}};
   globalThis.__photoUIAuth=service;
-  const source=(await readFile(new URL('../dist/js/community.js',import.meta.url),'utf8')).replace("import * as auth from './firebase-service.js';",'const auth=globalThis.__photoUIAuth;').replace("from './profile-photo.js'",`from '${new URL('../dist/js/profile-photo.js',import.meta.url).href}'`)+`\n// fixture ${++seq}`;
+  const source=(await readFile(new URL('../public/js/community.js',import.meta.url),'utf8')).replace("import * as auth from './firebase-service.js';",'const auth=globalThis.__photoUIAuth;').replace("from './profile-photo.js'",`from '${new URL('../public/js/profile-photo.js',import.meta.url).href}'`)+`\n// fixture ${++seq}`;
   const ui=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
   const saved=[],messages=[],navigations=[];
   const state={profile,profilePending:false,publicMembers:[],tickets:[],orders:[],messages:[],posts:[]};

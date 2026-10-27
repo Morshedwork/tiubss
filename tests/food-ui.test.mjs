@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 const escape=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 let moduleId=0;
 async function setup(overrides={}) {
-  const module=await import(`../dist/js/events.js?food-ui-${++moduleId}`);
+  const module=await import(`../public/js/events.js?food-ui-${++moduleId}`);
   const memory=new Map(),listeners=new Map(),calls=[],messages=[],shown=[];
   const s={isLive:true,loading:false,auth:{user:{uid:'alice',emailVerified:true}},profile:{id:'alice',name:'Alice',onboardingComplete:true,status:'approved'},events:[{id:'festival',slug:'festival',title:'Our gathering',date:'2099-10-27',time:'12:00',location:'Campus',startsAt:'2099-10-27T03:00:00Z',endsAt:'2099-10-27T08:00:00Z',foodClosesAt:'2099-10-27T07:00:00Z',foodEnabled:true,allowGuestFood:true,status:'published',capacity:100}],vendors:[{id:'v1',eventId:'festival',name:'The rice stall',location:'West courtyard',status:'published'},{id:'v2',eventId:'festival',name:'The tea stall',location:'East courtyard',status:'published'}],menu:[{id:'rice',eventId:'festival',vendorId:'v1',name:'Rice',price:500,stock:8,perPersonLimit:3,active:true,category:'Meals'},{id:'tea',eventId:'festival',vendorId:'v2',name:'Tea',price:200,stock:8,perPersonLimit:3,active:true,category:'Drinks'}],orders:[],tickets:[],dataErrors:{},...overrides};
   const prior={document:globalThis.document,location:globalThis.location,localStorage:globalThis.localStorage};
@@ -24,7 +24,7 @@ async function setup(overrides={}) {
   const click=async(action,data={})=>{const button={disabled:false,dataset:{eventAction:action,...data}};await listeners.get('click')({target:{closest:()=>button}});};
   const modalClick=async(action,data={})=>{const button=modal.buttons.find(b=>b.dataset.modalEventAction===action&&Object.entries(data).every(([key,value])=>b.dataset[key]===String(value)));assert.ok(button,`modal action ${action} exists`);assert.equal(button.disabled,false,`modal action ${action} is enabled`);await button.listeners.click({target:button});};
   module.mountEvents(ctx);await new Promise(resolve=>setImmediate(resolve));
-  return {module,ctx,s,memory,calls,messages,shown,click,modalClick,get modal(){return modal;},async reload(){const m=await import(`../dist/js/events.js?food-ui-${++moduleId}`);this.module=m;m.mountEvents(ctx);await new Promise(resolve=>setImmediate(resolve));return m;},restore(){Object.assign(globalThis,prior);}};
+  return {module,ctx,s,memory,calls,messages,shown,click,modalClick,get modal(){return modal;},async reload(){const m=await import(`../public/js/events.js?food-ui-${++moduleId}`);this.module=m;m.mountEvents(ctx);await new Promise(resolve=>setImmediate(resolve));return m;},restore(){Object.assign(globalThis,prior);}};
 }
 
 test('food hub shows only open published food events and has a real ticket wallet link',async()=>{

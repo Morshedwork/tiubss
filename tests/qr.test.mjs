@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {qrSvg} from '../dist/js/qr.js';
+import {qrSvg} from '../public/js/qr.js';
 
 function raster(svg) {
   const box = svg.match(/viewBox="0 0 (\d+) (\d+)"/);
