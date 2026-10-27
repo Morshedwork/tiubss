@@ -147,3 +147,7 @@ The gallery has separate Community photos and Artworks sections; bundled illustr
 The homepage introduces the Bangladeshi student community at Tokyo International University with “Your Bangladesh, right here at TIU.” The original transparent ink-and-watercolour illustration centres eight fictional students sharing adda and food, with smaller rickshaw, Shaheed Minar, Tokyo Tower and folk details. It is an imagined community illustration, not a photograph of members or a documentary view of the campus. Its full built-in image-generation prompt and provenance are in `art-direction-v7.md`; the self-hosted WebP is `dist/assets/community-sketch-v7.webp`.
 
 The hero supports English/Bangla, a profile-aware join/community action, event links and people/adda/culture shortcuts. The existing interactive noticeboard is beside the member directory preview below the hero. Existing mela, art studio, profile, admin and reel sections remain available. The managed browser preview could not start due to a container process-mount permission error; visual browser verification was unavailable for this update.
+
+## Sponsor credit (27 October 2026)
+
+Footer sponsor card uses the official, unmodified logo fetched from https://www.cognisorai.com/cognisor-logo.png, stored locally in dist/assets/cognisor-ai-logo.png. The entire card links directly to https://www.cognisorai.com/ in the same tab to avoid a new-window dependency. The www homepage and logo both returned HTTP 200 during this update; the bare domain returned HTTP 503.

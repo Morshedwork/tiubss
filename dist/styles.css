@@ -8,3 +8,10 @@
 .bss-brand-credits{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:23px 0;border-top:1px solid #ffffff26;color:#fff8e6}.bss-brand-credits p,.bss-brand-credits>a{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 12px}.bss-brand-credits span,.bss-brand-credits small{font-size:11px;letter-spacing:.04em;color:#e6d8bc}.bss-brand-credits strong{font-family:var(--serif);font-size:19px;font-weight:500}.bss-brand-credits>a{text-decoration:none}.bss-brand-credits>a:hover strong{text-decoration:underline;text-underline-offset:4px}.bss-brand-credits>a:focus-visible{outline:2px solid var(--yellow);outline-offset:6px}@media(max-width:650px){.bss-brand-credits{flex-direction:column;align-items:flex-start;gap:17px;padding:22px 0}.bss-brand-credits strong{font-size:18px}.bss-brand-credits small{flex-basis:100%;font-size:10px}}
 
 .bss-developer-link{color:inherit;text-decoration:underline;text-decoration-color:#e6d8bc66;text-underline-offset:5px}.bss-developer-link:hover{text-decoration-color:currentColor}.bss-developer-link:focus-visible{outline:2px solid var(--yellow);outline-offset:5px}
+
+/* Official sponsor artwork, hosted locally so the logo does not depend on the sponsor site. */
+.bss-brand-credits>a.bss-sponsor-link{position:relative;z-index:1;display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:14px 18px;border:1px solid #ffffff30;border-radius:8px;background:#062c24;max-width:100%;cursor:pointer;transition:border-color .2s,background .2s}
+.bss-sponsor-link .bss-sponsor-logo{display:block;width:220px;max-width:100%;height:auto;object-fit:contain;background:#000;border-radius:4px}
+.bss-brand-credits>a.bss-sponsor-link:hover{border-color:#f7c742;background:#083d31}
+.bss-brand-credits>a.bss-sponsor-link small{text-decoration:underline;text-underline-offset:4px;line-height:1.6}
+@media(max-width:650px){.bss-brand-credits>a.bss-sponsor-link{width:100%;padding:16px}.bss-sponsor-link .bss-sponsor-logo{width:210px}.bss-brand-credits>a.bss-sponsor-link small{flex-basis:auto}}
