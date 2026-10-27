@@ -151,3 +151,9 @@ The hero supports English/Bangla, a profile-aware join/community action, event l
 ## Sponsor credit (27 October 2026)
 
 Footer sponsor card uses the official, unmodified logo fetched from https://www.cognisorai.com/cognisor-logo.png, stored locally in dist/assets/cognisor-ai-logo.png. The entire card links directly to https://www.cognisorai.com/ in the same tab to avoid a new-window dependency. The www homepage and logo both returned HTTP 200 during this update; the bare domain returned HTTP 503.
+
+## Combined administrator sign-in (27 October 2026)
+
+`#/admin/login` offers Google sign-in and Firebase email/password authentication. The username `Admin` is a convenience alias for `farhanmorshedwork@gmail.com`, also accepted on member sign-in. It never grants authorization. No password is hardcoded, logged, stored in browser storage, created, or reset by this change. Existing Firebase credentials must be used.
+
+The admin entry checks refreshed Firebase token roles together with the current server-owned staff assignment before navigating to the workspace. All existing backend and Firestore authorization remains enforced. Signing in without an assigned role displays an access-pending state; failed reads cannot verify an administrator. Firebase role assignment and protected backend activation remain pending because administrator access to the Firebase project has not been obtained.
