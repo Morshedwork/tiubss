@@ -1,3 +1,13 @@
+# TIU BSS
+
+## Firebase admin integration — 27 October 2026
+
+Member services at `/admin/services` now connects an assigned Firebase organiser account inside the independent admin workspace. Members, events, food menus/counters/orders, community moderation, inbox, reports and team assignments use the existing Firestore adapter and protected callables. The standalone Admin login and website CMS stay separate. Private records require Firebase role claims and a matching current staff assignment; failed privileged reads are displayed as errors. Legacy operational `/admin/*` links redirect to the corresponding service tab.
+
+Firebase initialization and Refresh recover from temporary failures. Queries with missing indexes retain authorization filters and can use a bounded fallback; results too large to retrieve completely remain explicit errors. No live data is copied into the demo store.
+
+**Activation is still required:** the public App Check key is empty and this editing session has no authenticated Firebase deployment access. Cloud Functions, rules/indexes, Storage, authorized domains and administrator assignment must be verified/applied in the `tiu-bss` project before live saves/uploads/orders can be confirmed. See `firebase/README.md` and run `node firebase/scripts/preflight.mjs`. A Sites deployment does not deploy Firebase services.
+
 # TIU BSS — A little Bangladesh. A world of belonging.
 
 ## Current live architecture and food ticketing (27 October 2026)

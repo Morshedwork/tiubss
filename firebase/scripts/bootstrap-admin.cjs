@@ -8,7 +8,11 @@ const { getAuth } = fromFunctions('firebase-admin/auth');
 const { getFirestore, FieldValue } = fromFunctions('firebase-admin/firestore');
 const uid = process.argv[2];
 if (!uid || !/^[a-zA-Z0-9_-]{1,128}$/.test(uid)) throw new Error('Usage: node scripts/bootstrap-admin.cjs FIREBASE_AUTH_UID');
-initializeApp();
+// This repository belongs to one project. Do not grant administrator access in
+// an unrelated project selected by ambient Application Default Credentials.
+const projectId = 'tiu-bss';
+if (process.env.GOOGLE_CLOUD_PROJECT && process.env.GOOGLE_CLOUD_PROJECT !== projectId) throw new Error('This administrator bootstrap only targets Firebase project tiu-bss.');
+initializeApp({ projectId });
 (async () => {
   const user = await getAuth().getUser(uid);
   await getAuth().setCustomUserClaims(uid, { ...user.customClaims, roles: ['super_admin', 'admin', 'member'] });

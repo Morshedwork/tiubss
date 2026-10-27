@@ -50,40 +50,46 @@ After activation: create and publish the event, set its food cutoff, create and 
 - Unpaid confirmed reservations expire after 30 minutes or the food-ordering cutoff (whichever is earlier). A scheduled function releases stock every five minutes. Cancelled eligible orders also release stock once. Orders already being prepared or paid are not cancelled automatically.
 - Server-owned role assignment checked against current assignment records as well as ID-token claims, current event/vendor scopes, immutable audit entries, public-content CMS writes, image uploads, and a server-side per-user rate limit on profile/registration/food creation.
 
-## Activate this project
+## Activate this project — current checklist (27 October 2026)
 
-1. Authentication and Firestore are already initialized. The project owner must enable the Blaze billing plan at https://console.firebase.google.com/project/tiu-bss/overview, then provision Storage and Cloud Functions. The Firestore database and functions use `asia-northeast1` (Tokyo).
-2. The authorized domain `tiu-bss-community.agile-poppy-0617.chatgpt.site` is already configured in Authentication → Settings → Authorized domains. Keep `tiu-bss.firebaseapp.com` authorized. Add `localhost` only for intentional local development. Do not include a protocol or path in an authorized-domain entry.
-3. Register the web app with Firebase App Check using reCAPTCHA v3. Add the site hostname to the provider configuration. Callable functions enforce App Check. Missing/invalid tokens are rejected, so an API config alone does not make mutations work.
-4. The public web config is already set in `dist/firebase-config.js` before the module loads. Keep it and set the App Check public site key:
+The website admin and Firebase organizer account are separate sign-ins. The Member services panel can load existing Firestore records after an assigned Firebase organizer signs in. It cannot grant itself a Firebase role or activate undeployed backend services. Publishing the Site does not deploy Firebase.
 
-```js
-window.BSS_FIREBASE_APP_CHECK_KEY = 'YOUR_RECAPTCHA_V3_SITE_KEY';
-```
-
-Web config identifiers are not an administrator credential. Never insert a service-account JSON, private key, or payment-provider secret into this file or any frontend asset.
-
-5. Use Node 22, install the Firebase CLI, sign in to your own project, and deploy from this directory:
+From the repository root, inspect the prepared source without making cloud changes:
 
 ```bash
-cd firebase/functions
-npm ci
-npm run build
-cd ..
-firebase deploy --project tiu-bss --only firestore,storage,functions
+node firebase/scripts/preflight.mjs
+# Optional: inspect existing authorized CLI accounts, the target project and deployed functions.
+node firebase/scripts/preflight.mjs --remote
 ```
 
-The deploy command applies the deny-by-default rules and indexes. Storage rules use Firestore-backed role checks; enable the Cloud Storage rules service permission to read Firestore when Firebase requests it on first deployment. Wait for composite indexes to finish building before opening dependent screens. Firestore TTL on `rateLimits.expiresAt` cleans up old rate-limit counters; expiration checks do not depend on TTL punctuality.
+The preflight prints no API keys, account details or credentials. Exit code `2` means a known requirement is missing; `0` still requires the listed console and end-to-end checks. It installs nothing, changes no billing/rules/roles, and does not create records. A missing local CLI does not block use of an authorized Firebase integration.
 
-6. Create your administrator's account through Firebase Auth. With Application Default Credentials authorized for your project, run:
+1. **Project access and billing.** Connect the Firebase integration to `tiu-bss`, or use an already installed Firebase CLI authenticated as the project owner. Confirm Blaze activation and Storage provisioning in the [Firebase console](https://console.firebase.google.com/project/tiu-bss/overview). Billing changes require the owner's action; this preflight never performs them.
+2. **Authentication domains.** Confirm Email/Password and Google providers are enabled. Add `www.tiubss.com` and `tiubss.com` to Authentication → Settings → Authorized domains. Keep `tiu-bss.firebaseapp.com` and the active Sites hostname if that address is still used. Enter hostnames without a protocol/path. The earlier generated hostname was `tiu-bss-community.agile-poppy-0617.chatgpt.site`; verify the current address before adding it.
+3. **App Check.** Register this web app for reCAPTCHA v3, authorize its website hostnames, and set the public site key in **`public/firebase-config.js`** (`window.BSS_FIREBASE_APP_CHECK_KEY`). All callable writes enforce App Check. Do not disable that protection to work around missing configuration. Republish the Site after changing this public key. Never put private service-account keys in frontend code.
+4. **Build and deploy Firebase.** With Node 22 and authorized project access, run:
 
 ```bash
-GOOGLE_CLOUD_PROJECT=tiu-bss node scripts/bootstrap-admin.cjs YOUR_FIREBASE_AUTH_UID
+npm --prefix firebase/functions ci
+npm --prefix firebase/functions test
+node firebase/scripts/preflight.mjs
+firebase deploy --project tiu-bss --config firebase/firebase.json --only firestore,storage,functions
+node firebase/scripts/preflight.mjs --remote
 ```
 
-Then sign out and sign in. Administrator status is a Firebase custom claim set through a trusted server; changing a browser/localStorage profile cannot grant a live role. Use `assignStaff` to grant additional scoped roles. New privileges require a refreshed token. Demotions and scope removals also check the current server-owned assignment, so an older token cannot retain a removed role. Refresh/sign out to update the visible dashboard after changing privileges.
+The deployment applies all prepared Firestore/Storage rules, indexes and Tokyo functions, including reservation expiry. Firebase may request the Storage rules service permission to read Firestore. Wait for indexes to become Enabled. The preflight can confirm listed function names, but cannot prove matching deployed code, App Check tokens or live callable execution.
 
-7. The frontend is wired to the live adapter. Do not upload demonstration members as real people. After activating Firebase, verify login/logout, persistence after reload, profile save and upload, public opt-in approval, free registration, cash food ordering and staff access using accounts you own. Republish the frontend when adding the App Check site key. The Sites audience is managed separately from Firebase membership; its current sharing settings are preserved.
+5. **First Firebase administrator.** Sign in through the website with the intended owner's existing Firebase account. Copy its UID from Firebase Authentication → Users; an email address or the separate `Admin` username is not a UID. In a trusted environment with Application Default Credentials authorized for this project:
+
+```bash
+GOOGLE_CLOUD_PROJECT=tiu-bss node firebase/scripts/bootstrap-admin.cjs FIREBASE_AUTH_UID
+```
+
+The script checks the existing Auth user and sets both server-side custom claims and `staffAssignments/{uid}`; the rules require both. It is pinned to `tiu-bss` and refuses a conflicting project environment. No service-account key file is required when the trusted runtime already supplies ADC. Firebase CLI sign-in alone is not necessarily Admin SDK ADC. Prefer a trusted Google runtime or approved service-account impersonation; never paste credentials into the Site. This bootstrap is a deliberate role mutation, unlike the preflight. After it succeeds, sign out and back in to the Firebase organizer panel. Subsequent staff changes use the existing role-assignment screen; removed roles/scopes are checked against the current server assignment on every operation.
+
+6. **Acceptance checks.** Use owned test accounts to verify login/logout, profile save after reload, photos, private-data isolation, organizer access, consent-based directory publication, registration, and one cash food order through payment → ready → single pickup. Test the same pickup again to confirm rejection. Publish only real events/stalls/dishes supplied by the society. Online payments, refunds and outbound email remain unconnected.
+
+Local verification on 27 October 2026: the backend TypeScript build, 26 callable-handler tests and two focused bootstrap authorization tests passed. Java is available, but the Firebase CLI and Firestore emulator binary are absent in this environment; security-rule emulator tests and live writes have **not** been verified here. No emulator downloads, real member writes or role grants were performed.
 
 ## Adapter API
 

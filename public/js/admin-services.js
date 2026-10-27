@@ -27,7 +27,7 @@ function loadConfig(){
 }
 export function createAdminServices(c,{api=firebase,store=createLiveStore(api),loadConfiguration=loadConfig}={}){
   let disposed=false,initialized=false,busy=false,error='',cleanup;
-  const notify=()=>{if(!disposed&&!busy)c.render();};
+  const notify=()=>{const editing=globalThis.document?.activeElement?.closest('form');if(!disposed&&!busy&&!editing)c.render();};
   const unsubscribe=store.subscribe(notify);
   const context=()=>({...c,store,auth:api,adminBase:'/admin/services',adminTab:serviceTab(currentRoute()),adminEmbedded:true,adminTabs:SERVICE_TABS});
   async function initialize(){try{await loadConfiguration();await store.initialize();initialized=true;}catch(cause){error=api.friendlyError(cause);}finally{notify();}}
@@ -63,7 +63,7 @@ export function createAdminServices(c,{api=firebase,store=createLiveStore(api),l
       const action=button.dataset.memberService;
       if(action==='signout'){c.closeModal();await api.signOut();await store.refreshSession();}
       else if(action==='google'){await api.signInWithGoogle();await store.refreshSession();}
-      else if(action==='retry'){await initialize();}
+      else if(action==='retry'){if(initialized)await refresh();else await initialize();}
       else await refresh();
     },button)));
   }

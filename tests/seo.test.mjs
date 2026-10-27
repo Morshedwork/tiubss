@@ -30,7 +30,7 @@ test('sitemap contains canonical public URLs only; robots advertises it without 
  const fail=await serveSite(new Request('https://www.tiubss.com/news/example'),{},template);assert.equal(fail.status,503);
 });
 test('aliases redirect permanently and routing rejects external redirect tricks',async()=>{
- for(const [from,to]of [['/home','/'],['/stalls','/mela'],['/culture/','/culture'],['/login','/signin']]){
+ for(const [from,to]of [['/home','/'],['/stalls','/mela'],['/culture/','/culture'],['/login','/signin'],['/admin/menu','/admin/services/menu'],['/admin/members','/admin/services/members'],['/admin/orders','/admin/services/orders']]){
   const r=await serveSite(new Request('https://www.tiubss.com'+from+'?x=1'),{},template);assert.equal(r.status,308);assert.equal(r.headers.get('location'),'https://www.tiubss.com'+to+'?x=1');
  }
  assert.equal(routeTarget('/reels?category=Community','https://www.tiubss.com'),'/reels?category=Community');

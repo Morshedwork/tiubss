@@ -105,7 +105,7 @@ if (args.includes('--remote')) {
 } else report('CHECK', 'Remote account, project and function checks skipped. Use --remote with an already authorized CLI.');
 
 console.log('\nConsole checks still required:');
-console.log('- Authentication: Email/Password and Google enabled. Authorized domains: www.tiubss.com, tiu-bss.com, tiu-bss.firebaseapp.com, and the active Sites hostname when used.');
+console.log('- Authentication: Email/Password and Google enabled. Authorized domains: www.tiubss.com, tiubss.com, tiu-bss.firebaseapp.com, and the active Sites hostname when used.');
 console.log('- App Check: this web app registered for reCAPTCHA v3 with the same website hostnames; public key matches the local configuration.');
 console.log('- Billing/Storage/Functions: owner confirms Blaze activation and Storage provisioning; never change billing as part of this check.');
 console.log('- Firestore: deployed rules and enabled indexes; organizer custom claims and matching staffAssignments document.');
